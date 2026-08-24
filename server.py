@@ -175,6 +175,123 @@ def _create_subfolders(base: Path) -> None:
     for sub in SUBFOLDERS:
         (base / sub).mkdir(parents=True, exist_ok=True)
 
+# ── Specialized sheet-type detection ──────────────────────────────────────────
+_SHEET_TYPE_SIGNALS: dict = {
+    "risk_assessment": [
+        "risk", "threat", "vulnerability", "incident", "disaster recovery", "bcp",
+        "business continuity", "rto", "rpo", "pentest", "penetration test",
+        "third party risk", "vendor risk", "supply chain", "residual risk",
+        "risk register", "risk rating", "inherent risk",
+    ],
+    "ai_security": [
+        "artificial intelligence", "machine learning", "ml model", "model governance",
+        "bias", "explainability", "fairness", "hallucination", "llm",
+        "generative ai", "training data", "ai ethics", "responsible ai",
+        "model accuracy", "model drift", "ai transparency", "algorithmic",
+    ],
+    "data_privacy": [
+        "gdpr", "ccpa", "data subject", "right to erasure", "dpia",
+        "data processing agreement", "personal data", "data retention",
+        "data protection officer", "dpo", "privacy", "lawful basis",
+        "consent", "data minimization",
+    ],
+    "compliance": [
+        "iso 27001", "soc 2", "soc2", "nis2", "nist", "pci dss",
+        "hipaa", "audit", "certification", "accreditation",
+        "regulatory", "compliance framework", "caiq", "sig lite",
+    ],
+    "security": [
+        "encryption", "aes", "tls", "ssl", "firewall", "intrusion detection",
+        "ids", "ips", "vulnerability scan", "patch management",
+        "access control", "mfa", "multi-factor", "zero trust",
+        "siem", "endpoint security", "network security",
+    ],
+    "technical_spec": [
+        "api", "integration", "webhook", "sso", "saml", "oauth",
+        "latency", "uptime", "sla", "hosting", "infrastructure",
+        "architecture", "scalability", "throughput", "availability",
+        "response time", "rate limit",
+    ],
+}
+
+_SHEET_TYPE_LABELS = {
+    "risk_assessment": "Risk Assessment",
+    "ai_security":     "AI / ML Security",
+    "data_privacy":    "Data Privacy / GDPR",
+    "compliance":      "Compliance & Certifications",
+    "security":        "Information Security",
+    "technical_spec":  "Technical Specification",
+    "general_rfi":     "General RFI / Features",
+}
+
+_SHEET_TYPE_GUIDANCE = {
+    "risk_assessment": """\
+ANSWERING RULES — Risk Assessment
+  • Never assert RTO, RPO, uptime %, or incident timelines unless the exact figure is in a KB source file.
+  • Use confidence 'low' + [CONFIRM:CONTRACTUAL] for SLA numbers, DR capabilities, or audit results.
+  • Do not infer compliance from certifications unless the cert explicitly covers the control asked about.
+  • Every claim about pen tests or third-party audits requires a dated KB reference.
+  → Recommended KB files to load: security_posture, compliance_certs, incident_response""",
+
+    "ai_security": """\
+ANSWERING RULES — AI / ML Security
+  • Do not claim 'no hallucinations', 'fully explainable', or 'unbiased' — unprovable absolutes.
+  • Use confidence 'medium' for model governance / bias mitigation unless ai_governance KB is loaded.
+  • Training data provenance, contamination, model versioning → confidence 'low' + [CONFIRM:AI-GOVERNANCE] unless in KB.
+  • Describe what the product does; avoid performance claims without benchmarks.
+  → Recommended KB files to load: ai_governance, security_posture""",
+
+    "data_privacy": """\
+ANSWERING RULES — Data Privacy / GDPR
+  • GDPR / CCPA / DPIA claims must be sourced from KB — never inferred from general knowledge.
+  • Data subject rights (access, erasure, portability) → confirm exact workflow from KB; if absent use [CONFIRM:LEGAL].
+  • Data retention periods must match KB exactly — do not estimate.
+  • Cross-border transfer claims → [CONFIRM:LEGAL] if SCCs/BCRs not in KB.
+  → Recommended KB files to load: data_privacy, compliance_certs""",
+
+    "compliance": """\
+ANSWERING RULES — Compliance & Certifications
+  • Only name certificates (ISO 27001, SOC 2, etc.) if they appear in KB with a certificate number or audit date.
+  • For NIS2 / NIST / CAIQ / SIG Lite, do not map internal controls to framework controls unless KB does so explicitly.
+  • [CONFIRM:COMPLIANCE] for any question about audit scope, last audit date, or remediation timelines.
+  → Recommended KB files to load: compliance_certs, security_posture""",
+
+    "security": """\
+ANSWERING RULES — Information Security
+  • Encryption algorithms, key lengths, TLS versions → must match KB exactly.
+  • Pen test / vulnerability scan results → [CONFIRM:SECURITY] unless KB contains a dated summary.
+  • MFA / SSO claims are safe to assert from integrations KB.
+  • SIEM, EDR, SOC details → source from security_posture KB only.
+  → Recommended KB files to load: security_posture, compliance_certs""",
+
+    "technical_spec": """\
+ANSWERING RULES — Technical Specification
+  • API rate limits, uptime SLAs, latency figures → source from KB only.
+  • Integration claims must match integrations KB — do not name a connector unless listed there.
+  • Hosting / infrastructure → source from security_posture KB.
+  • Custom development timelines → [CONFIRM:TECHNICAL] unless pre-approved.
+  → Recommended KB files to load: integrations, security_posture, pricing_terms""",
+
+    "general_rfi": """\
+ANSWERING RULES — General RFI
+  • Source answers from product KB and deal context.
+  • confidence 'medium' when KB covers the topic partially.
+  • confidence 'low' + [CONFIRM: <what to verify>] when KB is silent.""",
+}
+
+
+def _detect_sheet_type(sheet_name: str, headers: list, section_names: list) -> str:
+    """Score all text signals against type keyword lists; return the winning type."""
+    combined = " ".join([sheet_name] + headers + section_names).lower()
+    scores: dict = {t: 0 for t in _SHEET_TYPE_SIGNALS}
+    for stype, signals in _SHEET_TYPE_SIGNALS.items():
+        for sig in signals:
+            if sig in combined:
+                scores[stype] += 1
+    best = max(scores, key=lambda t: scores[t])
+    return best if scores[best] > 0 else "general_rfi"
+
+
 # ── Deal management ────────────────────────────────────────────────────────────
 
 @mcp.tool()
@@ -1926,6 +2043,17 @@ def parse_rfi_xlsx(deal_id: str, xlsx_path: str) -> str:
         q_col, a_col, st_col, cx_cols, confident = _detect_cols(hdr)
         sheet_col_map[sheet_name] = (q_col, a_col, st_col, cx_cols, confident)
 
+        # Sheet-type detection: collect section names from banner rows
+        section_names = [
+            next((c for c in r["cells"] if c), "")
+            for r in rows_data if r["is_category_header"]
+        ]
+        stype = _detect_sheet_type(sheet_name, hdr, section_names)
+        sheet_col_map[sheet_name] = (q_col, a_col, st_col, cx_cols, confident, stype)
+        type_label = _SHEET_TYPE_LABELS.get(stype, stype)
+
+        lines.append("│")
+        lines.append(f"│  ── Sheet type: {type_label} ──")
         lines.append("│")
         conf_badge = "✅ auto-detected" if confident else "⚠️  low confidence — please verify"
         lines.append(f"│  ── Column detection ({conf_badge}) ──")
@@ -1976,11 +2104,12 @@ def parse_rfi_xlsx(deal_id: str, xlsx_path: str) -> str:
 
     # ── Parameters block ──────────────────────────────────────────────────────
     first_sheet = next(iter(sheet_col_map), None)
-    first_entry = sheet_col_map[first_sheet] if first_sheet else (None, None, None, [], False)
-    fq, fa, fst, fcx, fconf = first_entry
+    first_entry = sheet_col_map[first_sheet] if first_sheet else (None, None, None, [], False, "general_rfi")
+    fq, fa, fst, fcx, _fconf, _fstype = first_entry
 
     answerable_flat = {sn: rows for sn, rows in sheet_answerable.items() if rows}
-    any_uncertain = not all(v[-1] for v in sheet_col_map.values())
+    # confident flag is index 4; stype is index 5
+    any_uncertain = not all(v[4] for v in sheet_col_map.values())
 
     lines += ["═" * 70, f"TOTAL FILL-TARGET QUESTIONS: {total_questions}", ""]
 
@@ -2013,11 +2142,24 @@ def parse_rfi_xlsx(deal_id: str, xlsx_path: str) -> str:
     for sn, rows in answerable_flat.items():
         row_str = ", ".join(str(r) for r in rows)
         lines.append(f"    Sheet \"{sn}\": {row_str}")
+    lines.append("")
+
+    # ── Answering guidance per detected sheet type ─────────────────────────────
+    detected_types = list({v[5] for v in sheet_col_map.values()})
+    if detected_types:
+        lines.append("─" * 70)
+        lines.append("ANSWERING GUIDANCE (read before calling fill_rfi_xlsx):")
+        lines.append("")
+        for stype in detected_types:
+            lines.append(_SHEET_TYPE_GUIDANCE.get(stype, _SHEET_TYPE_GUIDANCE["general_rfi"]))
+            lines.append("")
+        lines.append("─" * 70)
+
     lines += [
         "",
         "  The banner/section rows listed above are NOT fill targets.",
-        "  Once you confirm the mapping, I will answer each question from the KB",
-        "  and call fill_rfi_xlsx with the correct column letters and row numbers.",
+        "  Once you confirm the mapping, load the recommended KB files, then answer",
+        "  each question and call fill_rfi_xlsx.",
         "═" * 70,
     ]
     return "\n".join(lines)
@@ -2029,6 +2171,7 @@ def fill_rfi_xlsx(
     answers_json: str,
     answer_col: str = "C",
     status_col: str = "",
+    sheet_type: str = "general_rfi",
 ) -> str:
     """
     STEP 2 OF AUTO-ANSWER FLOW — Write iMocha's answers into the client's RFI XLSX.
@@ -2082,9 +2225,18 @@ def fill_rfi_xlsx(
         answer_col:   Excel column letter for answers (e.g. "C", "D"). Default "C".
         status_col:   Excel column letter for status badge (e.g. "D", "E").
                       Leave empty to skip status column entirely.
+        sheet_type:   Sheet type from parse_rfi_xlsx detection — controls CONFIRM tag prefix
+                      for low-confidence answers. One of:
+                        "general_rfi" (default) → [CONFIRM: <detail>]
+                        "risk_assessment"        → [CONFIRM:CONTRACTUAL — <detail>]
+                        "ai_security"            → [CONFIRM:AI-GOVERNANCE — <detail>]
+                        "data_privacy"           → [CONFIRM:LEGAL — <detail>]
+                        "compliance"             → [CONFIRM:COMPLIANCE — <detail>]
+                        "security"               → [CONFIRM:SECURITY — <detail>]
+                        "technical_spec"         → [CONFIRM:TECHNICAL — <detail>]
     """
     try:
-        import openpyxl
+        import openpyxl  # noqa: F401
     except ImportError:
         return "Error: openpyxl not installed."
 
@@ -2112,6 +2264,19 @@ def fill_rfi_xlsx(
     status_col_num = _col_num(status_col) if status_col.strip() else None
 
     STATUS_MAP = {"high": "Supported", "medium": "Partial", "low": "Review Required"}
+
+    # Prefix for low-confidence CONFIRM tags — varies by sheet type
+    _CONFIRM_PREFIX = {
+        "risk_assessment": "CONFIRM:CONTRACTUAL",
+        "ai_security":     "CONFIRM:AI-GOVERNANCE",
+        "data_privacy":    "CONFIRM:LEGAL",
+        "compliance":      "CONFIRM:COMPLIANCE",
+        "security":        "CONFIRM:SECURITY",
+        "technical_spec":  "CONFIRM:TECHNICAL",
+        "general_rfi":     "CONFIRM",
+    }
+    confirm_tag = _CONFIRM_PREFIX.get(sheet_type.strip().lower(), "CONFIRM")
+
     # ── Make a full copy of the original ─────────────────────────────────────
     original = originals[0]
     out = auto_answer_dir / "rfi_filled.xlsx"
@@ -2148,19 +2313,29 @@ def fill_rfi_xlsx(
 
     # Group answers by sheet, keyed by row number
     updates_by_sheet: dict = {}
+    audit_rows: list = []  # for answers.md
     for item in answers:
         sheet_name = item.get("sheet", "")
         row = item.get("row")
+        question = str(item.get("question", "")).strip()
         answer = str(item.get("answer", "")).strip()
+        kb_source = str(item.get("kb_source", "")).strip()
         confidence = str(item.get("confidence", "high")).lower()
         if confidence not in STATUS_MAP:
             confidence = "high"
         if not sheet_name or not isinstance(row, int) or row < 1:
             skipped += 1
             continue
+        # For low-confidence answers, enforce sheet-type-specific CONFIRM tag prefix
+        if confidence == "low" and answer and not answer.startswith("["):
+            answer = f"[{confirm_tag} — {answer}]"
         updates_by_sheet.setdefault(sheet_name, {})[row] = {
             "answer": answer, "confidence": confidence
         }
+        audit_rows.append({
+            "sheet": sheet_name, "row": row, "question": question,
+            "answer": answer, "confidence": confidence, "kb_source": kb_source,
+        })
 
     def _patch_ws(ws_xml: str, by_row: dict) -> str:
         """Surgically insert/replace only the answer and status cells in each
@@ -2264,11 +2439,40 @@ def fill_rfi_xlsx(
     if low_count > 0:
         result += (
             f"\n⚠️  {low_count} question(s) marked 'Review Required'.\n"
-            f"   Open rfi_filled.xlsx, filter for [CONFIRM:], and fill manually\n"
+            f"   Open rfi_filled.xlsx, filter for [{confirm_tag}], and fill manually\n"
             f"   before sending to {meta['client_name']}."
         )
     else:
         result += f"\n✅ All {filled} answers filled. Review before sending to {meta['client_name']}."
+
+    # ── Write answers.md audit trail ──────────────────────────────────────────
+    if audit_rows:
+        type_label = _SHEET_TYPE_LABELS.get(sheet_type, "General RFI")
+        md_lines = [
+            f"# RFI Answers — {meta['client_name']}",
+            f"_Generated {datetime.now().strftime('%B %d, %Y %H:%M')} · Sheet type: {type_label}_",
+            "",
+            "| Row | Sheet | Confidence | Answer | KB Source |",
+            "|-----|-------|-----------|--------|-----------|",
+        ]
+        for a in sorted(audit_rows, key=lambda x: (x["sheet"], x["row"])):
+            conf_icon = {"high": "✅", "medium": "⚠️", "low": "🔴"}.get(a["confidence"], "")
+            ans_short = a["answer"][:80].replace("|", "\\|") + ("…" if len(a["answer"]) > 80 else "")
+            kb = a["kb_source"].replace("|", "\\|") or "—"
+            md_lines.append(f"| {a['row']} | {a['sheet']} | {conf_icon} {a['confidence']} | {ans_short} | {kb} |")
+        if low_count > 0:
+            md_lines += [
+                "",
+                f"## Review Required ({low_count})",
+                "",
+            ]
+            for a in audit_rows:
+                if a["confidence"] == "low":
+                    md_lines.append(f"- **Row {a['row']}** ({a['sheet']}): {a['answer'][:120]}")
+        audit_out = auto_answer_dir / "answers.md"
+        audit_out.write_text("\n".join(md_lines))
+        result += f"\nAudit trail         : {audit_out}"
+
     return result
 
 
