@@ -1,184 +1,148 @@
-# BidBuddy MCP Server
+# BidBuddy
 
-iMocha pre-sales bid workflow automation for Claude Desktop.
+iMocha's pre-sales workflow assistant, connected to Claude Desktop via MCP.
 
 ---
 
-## One-time setup (per laptop, ~10 minutes)
+## First-time setup (~5 minutes)
 
-### 1. Install Python dependencies
-```bash
-cd ~/Desktop/bidbuddy-mcp
-pip install -r requirements.txt
+You need to do this once when you get a new laptop.
+
+### Step 1 — Get the files
+
+Ask your team lead to share the `bidbuddy-mcp` folder and drop it on your Desktop.
+
+> Your folder path should look like: `/Users/yourname/Desktop/bidbuddy-mcp/`
+
+---
+
+### Step 2 — Run the setup script
+
+1. Press **⌘ Space**, type **Terminal**, press Enter
+2. Type this exactly and press Enter:
+
+```
+bash ~/Desktop/bidbuddy-mcp/setup.sh
 ```
 
-### 2. Templates are already included
-`templates/TA_Proposal_template.docx` and `TM_Proposal_template.docx` are in this folder.
+The script will:
+- Check Python is installed (tells you what to do if not)
+- Install required packages automatically
+- Configure Claude Desktop to connect to BidBuddy
 
-### 3. Configure Claude Desktop
-Open (or create): `~/Library/Application Support/Claude/claude_desktop_config.json`
+> If Python isn't installed, the script will tell you — download from **python.org/downloads**, install it, and run the script again.
 
-```json
-{
-  "mcpServers": {
-    "bidbuddy": {
-      "command": "python3",
-      "args": ["/Users/YOUR_NAME/Desktop/bidbuddy-mcp/server.py"]
-    }
-  }
-}
+---
+
+### Step 3 — Restart Claude Desktop
+
+Quit Claude Desktop (⌘Q) and reopen it.
+
+You should see a **🔨 icon** in the chat input bar — that means BidBuddy tools are connected.
+
+---
+
+### Step 4 — Set up the BidBuddy Project (one-time)
+
+This is done inside Claude Desktop:
+
+1. Click **New Project** in the left sidebar
+2. Name it **BidBuddy**
+3. Click **Add Content** → upload all 14 KB documents (get these from your team lead)
+4. Click **Project Instructions** → paste the instructions block (get this from your team lead)
+
+That's it. You're ready.
+
+---
+
+## Daily use — what to say
+
+You always work inside the **BidBuddy** project in Claude Desktop.
+
+### Start a new deal
+```
+New deal. Client: Accenture. Folder is at /Users/yourname/Desktop/Accenture/
+Product: TA. Deadline: 30 Sep 2026.
+My name: Aryan Pawar, aryan.pawar@imocha.io
 ```
 
-Replace `YOUR_NAME` with your macOS username.
+### Qualify a deal
+```
+Qualify the Accenture deal.
+```
 
-### 4. Restart Claude Desktop
-Quit and reopen. You'll see a 🔨 icon in the chat input — BidBuddy tools are live.
+### Generate supplier questionnaire
+```
+Generate a supplier questionnaire for Accenture.
+```
+
+### Answer a client RFI
+```
+The client sent us a questionnaire. File is at /Users/yourname/Downloads/Accenture_RFI.xlsx
+Auto-answer it for the Accenture deal.
+```
+
+### Generate a proposal DOCX
+```
+Generate the proposal DOCX for Accenture.
+```
 
 ---
 
 ## Deal folder structure (auto-created by BidBuddy)
 
-The analyst creates a folder on Desktop (e.g. `Desktop/Accenture/`) and drops the RFP PDF in it.
-BidBuddy creates all subfolders automatically:
+Drop your client's folder on Desktop. BidBuddy creates all subfolders.
 
 ```
 Desktop/
   Accenture/
-    meta.json                          ← deal metadata (auto-created)
     Deal Qualification/
-      rfp.pdf                          ← original RFP (copied in)
-      rfp_text.txt                     ← extracted text (auto)
-      analysis.md                      ← RFP Analysis doc (Claude-authored)
-      scorecard.md                     ← Qualification Scorecard with score (Claude-authored)
+      iMocha_Accenture_RFPAnalysis.docx     ← auto-generated
+      iMocha_Accenture_BidQualResult.docx   ← auto-generated with score
     RFI/
       Supplier Questionnaire/
-        questionnaire.md               ← discovery questions iMocha sends to client
+        iMocha_Accenture_Clarification.xlsx ← questions iMocha sends to client
       Auto Answer/
-        rfi_original.xlsx              ← client's questionnaire (copied in)
-        rfi_filled.xlsx                ← auto-answered responses (Claude-authored)
-        answers.md                     ← narrative summary of answers
+        rfi_original.xlsx                   ← client's questionnaire (untouched)
+        rfi_filled.xlsx                     ← auto-answered copy
+        answers.md                          ← audit trail of answers + confidence
     RFP/
-      proposal_draft.md                ← proposal content (Claude-authored)
-      iMocha_Accenture_TA_Proposal_DRAFT.docx  ← branded DOCX (generated)
+      iMocha_Accenture_TA_Proposal_DRAFT.docx  ← branded proposal
 ```
 
 ---
 
-## Tools available
+## KB Documents (upload these to the Project)
 
-| Tool | What it does |
-|---|---|
-| `setup_deal` | Initialize deal workspace + subfolders |
-| `list_deals` | See all active deals and their stage |
-| `get_deal_context` | Load full context for Claude (RFP + all stage outputs) |
-| `ingest_rfp` | Copy RFP PDF → extract text for Claude |
-| `save_output` | Save Claude's output to correct subfolder |
-| `list_deal_files` | Show deal file tree |
-| `parse_rfi_xlsx` | Read client's RFI questionnaire |
-| `fill_rfi_xlsx` | Write answers into the questionnaire XLSX |
-| `generate_proposal_docx` | Generate branded DOCX from Claude's content |
-
----
-
-## Analyst workflow (what to say in Claude Desktop)
-
-### Start a new deal
-```
-I have a new deal. The folder is at /Users/aryan/Desktop/Accenture/ and the RFP is inside it.
-Here are the details:
-- Client: Accenture
-- Product: TA
-- Deadline: 30 Sep 2026
-- My name: Aryan Pawar, aryan.pawar@imocha.io
-- Prepared for: Global Procurement Team, Accenture
-```
-Claude will call `setup_deal` and `ingest_rfp` automatically.
-
-### Deal Qualification
-```
-Qualify the Accenture deal.
-```
-Claude calls `get_deal_context`, reads the RFP, generates RFP Analysis + Qualification Scorecard
-(10 parameters, score out of 100), saves both docs, returns the score in chat.
-
-### Supplier Questionnaire (discovery questions iMocha sends to client)
-```
-Generate a supplier questionnaire for Accenture to send to the client.
-```
-Claude generates structured discovery questions (technical, commercial, timeline gaps),
-saves to `RFI/Supplier Questionnaire/questionnaire.md`.
-
-### RFI Auto-Answer (client sends iMocha a vendor questionnaire)
-```
-The client sent us a vendor questionnaire. File is at /Users/aryan/Downloads/Accenture_RFI.xlsx
-Auto-answer it for the Accenture deal.
-```
-Claude parses the XLSX, answers all questions using KB + RFP context, fills the sheet,
-saves `rfi_filled.xlsx` with [CONFIRM:] markers for anything uncertain.
-
-### Proposal Generation
-```
-Generate the proposal DOCX for Accenture.
-```
-Claude reads all prior context (RFP + qualification + RFI answers), authors proposal content,
-generates the branded DOCX with yellow highlights, saves to `RFP/`.
+| # | File | Covers |
+|---|------|--------|
+| 1 | TA_Analytics_.docx | TA analytics features |
+| 2 | TA_Fn_Requriment.docx | TA functional requirements |
+| 3 | Conversational AI Interviews.docx | AI interview product (Tara) |
+| 4 | SI_Fn_Requirement.docx | Skills Intelligence features |
+| 5 | SI_Reporting/Analytics | SI reporting features |
+| 6 | Technical 1.docx | Architecture, APIs, integrations |
+| 7 | Security.docx | Security posture, certs, hosting |
+| 8 | SSO.docx | SSO and access management |
+| 9 | Support & Project Management.docx | Support tiers, SLAs |
+| 10 | Ethical AI.docx | AI ethics and fairness |
+| 11 | Company_Overview.docx | Company background |
+| 12 | LLM Skills Inferencing.docx | Skills taxonomy and LLM inference |
+| 13 | AI Governance.docx | AI governance framework |
+| 14 | AI FAQ Responses.docx | Common AI-related Q&A |
+| 15 | iMocha_AI_Inference_Engine.pdf | AI inference mechanics (shared TA+SI) |
 
 ---
 
-## Claude Desktop project instructions (paste into BidBuddy project)
+## Troubleshooting
 
-```
-You are iMocha's pre-sales AI assistant. You have BidBuddy tools connected.
+**🔨 icon not showing in Claude Desktop**
+→ Make sure you restarted Claude Desktop after running setup.sh
+→ Run setup.sh again, then restart
 
-When an analyst starts a new deal, ask for:
-1. Client name
-2. Product (TA or TM)
-3. RFP PDF path (or folder path)
-4. Deadline
-5. Their name and email (SPOC)
-6. Client procurement contact name/team
+**"Python not found" during setup**
+→ Download Python from python.org/downloads (get the latest version for macOS)
+→ Run setup.sh again after installing
 
-Then call setup_deal and ingest_rfp in sequence.
-
-## DEAL QUALIFICATION — 10 parameters, score each /10, total /100
-
-1.  Strategic Fit — does this client's need match TA or TM exactly?
-2.  Budget Signal — is budget indicated and does it meet our floor?
-3.  Relationship — do we have an existing relationship or warm intro?
-4.  Win Probability — are we positioned to win vs incumbents?
-5.  Effort Required — how much pre-sales effort will this take?
-6.  Timeline Feasibility — can we meet the submission and delivery dates?
-7.  Compliance Requirements — can we meet all stated compliance/legal requirements?
-8.  Product Readiness — do we have all required features/integrations?
-9.  Reference Availability — do we have relevant case studies for this client's industry?
-10. Commercial Viability — is the deal size and structure commercially viable?
-
-Save analysis with save_output(stage="analysis") and scorecard with save_output(stage="scorecard", qualification_score=<total>).
-
-Return the score summary in chat.
-
-## SUPPLIER QUESTIONNAIRE
-Generate structured discovery questions grouped by: Technical, Integration, Commercial, Timeline, Evaluation Criteria.
-These are questions iMocha sends TO the client to clarify gaps before committing to a proposal.
-Save with save_output(stage="supplier_questionnaire").
-
-## RFI AUTO-ANSWER
-Use KB docs in this project + deal context from get_deal_context.
-Answer every question. Mark [CONFIRM: reason] for anything not traceable to KB or RFP.
-Never guess pricing, legal terms, or implementation timelines.
-Save narrative summary with save_output(stage="rfi_answers").
-Fill the XLSX with fill_rfi_xlsx.
-
-## PROPOSAL GENERATION
-Use get_deal_context — it includes RFP + qualification + RFI answers.
-Author intake JSON, call generate_proposal_docx.
-All AI-authored sections get yellow highlights in Word.
-[CONFIRM:] marks anything the analyst must fill before sending.
-
-## Flagging rule
-Anything not traceable to KB docs, the RFP, or confirmed bid context → [CONFIRM: description].
-Never fabricate capabilities, certifications, pricing, or case study metrics.
-
-## iMocha capabilities
-[Upload the 12-15 KB docs as project files — Claude reads them directly]
-```
+**Tool errors in chat**
+→ Ask your team lead — they can check the server logs
