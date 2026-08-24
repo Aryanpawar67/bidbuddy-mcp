@@ -138,6 +138,9 @@ def _decode_para_text(para: str) -> str:
     return result
 
 def apply_paragraph_substitutions(xml: str, subs: list[tuple[str, str]]) -> str:
+    # Self-closing <w:p attr/> paragraphs have no </w:p>, causing the non-greedy
+    # regex to span into the next paragraph's closing tag. Expand them first.
+    xml = re.sub(r'<w:p ([^>]*)\/>', r'<w:p \1></w:p>', xml)
     bullet_num_id = _discover_bullet_num_id(xml)
 
     def replace_para(m):
@@ -305,26 +308,30 @@ def inject_deliverables(
 
 # ── ZIP part stripping ─────────────────────────────────────────────────────────
 
-EXCLUDED_PARTS = {
-    "docProps/custom.xml",
-    "customXml/item1.xml", "customXml/item2.xml", "customXml/item3.xml",
-    "customXml/itemProps1.xml", "customXml/itemProps2.xml", "customXml/itemProps3.xml",
-    "customXml/_rels/item1.xml.rels", "customXml/_rels/item2.xml.rels", "customXml/_rels/item3.xml.rels",
-    "word/intelligence2.xml",  # Word AI spell-check memory — locks Word Online editing
-}
+def _is_excluded_part(filename: str) -> bool:
+    """Return True for any SharePoint/Copilot part that blocks Word Online editing."""
+    if filename in ("docProps/custom.xml", "word/intelligence2.xml"):
+        return True
+    if re.match(r"^customXml/(item|itemProps)\d+\.xml$", filename):
+        return True
+    if re.match(r"^customXml/_rels/item\d+\.xml\.rels$", filename):
+        return True
+    return False
 
 def _strip_rels(xml: str) -> str:
     xml = re.sub(r'<Relationship[^>]*custom-properties[^>]*/>', "", xml)
     return xml
 
 def _strip_doc_rels(xml: str) -> str:
-    xml = re.sub(r'<Relationship[^>]*Target="\.\./customXml/item[123]\.xml"[^>]*/>', "", xml)
+    # Strip ALL customXml item refs (\d+ not [123]) and intelligence2 relationship
+    xml = re.sub(r'<Relationship[^>]*Target="\.\./customXml/item\d+\.xml"[^>]*/>', "", xml)
     xml = re.sub(r'<Relationship[^>]*intelligence2[^>]*/>', "", xml)
     return xml
 
 def _strip_content_types(xml: str) -> str:
     xml = re.sub(r'<Override[^>]*PartName="/docProps/custom\.xml"[^>]*/>', "", xml)
-    xml = re.sub(r'<Override[^>]*PartName="/customXml/item(?:Props)?[123]\.xml"[^>]*/>', "", xml)
+    # Strip ALL customXml item + itemProps entries (\d+ not [123])
+    xml = re.sub(r'<Override[^>]*PartName="/customXml/item(?:Props)?\d+\.xml"[^>]*/>', "", xml)
     xml = re.sub(r'<Override[^>]*intelligence2[^>]*/>', "", xml)
     return xml
 
@@ -341,6 +348,7 @@ def _strip_protection(xml: str) -> str:
 
 def generate_docx(template_path: Path, intake: dict) -> bytes:
     product = intake.get("product", "TA")
+    print(f"[docx_engine v4] generate_docx called — product={product}, template={template_path.name}")
     subs = _build_tm_subs(intake) if product == "TM" else _build_ta_subs(intake)
     anchors = TM_ANCHORS if product == "TM" else TA_ANCHORS
 
@@ -352,9 +360,12 @@ def generate_docx(template_path: Path, intake: dict) -> bytes:
     out_buf = io.BytesIO()
 
     with zipfile.ZipFile(in_buf, "r") as zin:
+        all_parts = [i.filename for i in zin.infolist()]
+        stripped = [p for p in all_parts if _is_excluded_part(p)]
+        print(f"[docx_engine v4] stripping {len(stripped)} SP/Copilot parts: {stripped or 'none'}")
         with zipfile.ZipFile(out_buf, "w", zipfile.ZIP_DEFLATED) as zout:
             for item in zin.infolist():
-                if item.filename in EXCLUDED_PARTS:
+                if _is_excluded_part(item.filename):
                     continue
 
                 data = zin.read(item.filename)
