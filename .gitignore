@@ -1,11 +1,24 @@
-# Environment / secrets
+# ── Secrets — never commit these ──────────────────────────────────────────────
 .env
 .env.*
 
-# Runtime deal data (client files, auto-answer outputs)
+# ── KB files and Project Instructions ─────────────────────────────────────────
+# These are handed directly by admin. They must NEVER be in version control.
+kb/
+KB/
+knowledge_base/
+instructions/
+project_instructions*.txt
+project_instructions*.md
+
+# ── Runtime deal data (client files, outputs) ─────────────────────────────────
 bids/
 
-# Python
+# ── macOS noise ───────────────────────────────────────────────────────────────
+.DS_Store
+*.DS_Store
+
+# ── Python ────────────────────────────────────────────────────────────────────
 __pycache__/
 *.pyc
 *.pyo

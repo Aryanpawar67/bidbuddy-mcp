@@ -1,148 +1,152 @@
 # BidBuddy
 
-iMocha's pre-sales workflow assistant, connected to Claude Desktop via MCP.
+iMocha's AI pre-sales assistant, connected to Claude Desktop.
 
 ---
 
-## First-time setup (~5 minutes)
+## Before you start — get these from your admin
 
-You need to do this once when you get a new laptop.
+> ⚠️ These are **not** in this folder. Your team lead/admin will share them directly.
 
-### Step 1 — Get the files
+- **14 KB documents** — the product knowledge files
+- **Project Instructions** — the text you paste into the Claude project
 
-Ask your team lead to share the `bidbuddy-mcp` folder and drop it on your Desktop.
+Do not download these from anywhere else.
 
-> Your folder path should look like: `/Users/yourname/Desktop/bidbuddy-mcp/`
+---
+
+## First-time setup
+
+### What you need on your Mac
+- Claude Desktop → download at **claude.ai/download** if not already installed
+- Python → download at **python.org/downloads** if not already installed
+- The `bidbuddy-mcp` folder on your Desktop (this folder, shared by your admin)
+
+---
+
+### Step 1 — Open Terminal
+
+Press **⌘ Space**, type **Terminal**, press **Enter**.
+
+A black or white window will open. That's the Terminal. Keep it open.
 
 ---
 
 ### Step 2 — Run the setup script
 
-1. Press **⌘ Space**, type **Terminal**, press Enter
-2. Type this exactly and press Enter:
+In the Terminal window, type this exactly and press **Enter**:
 
 ```
 bash ~/Desktop/bidbuddy-mcp/setup.sh
 ```
 
-The script will:
-- Check Python is installed (tells you what to do if not)
-- Install required packages automatically
-- Configure Claude Desktop to connect to BidBuddy
+Press **Enter** when the script asks you to. It will tell you everything it's doing and what to do if something goes wrong.
 
-> If Python isn't installed, the script will tell you — download from **python.org/downloads**, install it, and run the script again.
+When it finishes, you'll see a green checkmark: `✓ Setup complete!`
 
 ---
 
 ### Step 3 — Restart Claude Desktop
 
-Quit Claude Desktop (⌘Q) and reopen it.
+Press **⌘Q** in Claude Desktop to quit it, then reopen it from your Applications folder.
 
-You should see a **🔨 icon** in the chat input bar — that means BidBuddy tools are connected.
+> Look for the **🔨 icon** in the chat input bar.
+> If you see it, BidBuddy is connected and ready.
 
 ---
 
-### Step 4 — Set up the BidBuddy Project (one-time)
+### Step 4 — Create the BidBuddy Project in Claude Desktop
 
-This is done inside Claude Desktop:
+Do this once inside Claude Desktop:
 
 1. Click **New Project** in the left sidebar
 2. Name it **BidBuddy**
-3. Click **Add Content** → upload all 14 KB documents (get these from your team lead)
-4. Click **Project Instructions** → paste the instructions block (get this from your team lead)
 
-That's it. You're ready.
+---
+
+### Step 5 — Add the KB files
+
+1. Inside the BidBuddy project, click **Add Content**
+2. Upload all 14 KB documents your admin gave you
+3. Wait for the upload to finish (a progress bar will show)
+
+---
+
+### Step 6 — Add the Project Instructions
+
+1. Inside the BidBuddy project, find **Project Instructions** (or Custom Instructions)
+2. Paste the full instructions text your admin gave you
+3. Save
+
+---
+
+### Done ✓
+
+Open a new chat inside the BidBuddy project. You're ready to go.
 
 ---
 
 ## Daily use — what to say
 
-You always work inside the **BidBuddy** project in Claude Desktop.
+Open a chat in the **BidBuddy project** and type any of these:
 
-### Start a new deal
+**Start a new deal**
 ```
-New deal. Client: Accenture. Folder is at /Users/yourname/Desktop/Accenture/
+New deal. Client: Accenture. Folder: /Users/yourname/Desktop/Accenture/
 Product: TA. Deadline: 30 Sep 2026.
-My name: Aryan Pawar, aryan.pawar@imocha.io
+My name: Your Name, your.email@imocha.io
 ```
 
-### Qualify a deal
+**Qualify a deal**
 ```
 Qualify the Accenture deal.
 ```
 
-### Generate supplier questionnaire
+**Generate discovery questions to send the client**
 ```
 Generate a supplier questionnaire for Accenture.
 ```
 
-### Answer a client RFI
+**Answer a questionnaire the client sent us**
 ```
 The client sent us a questionnaire. File is at /Users/yourname/Downloads/Accenture_RFI.xlsx
 Auto-answer it for the Accenture deal.
 ```
 
-### Generate a proposal DOCX
+**Generate the proposal DOCX**
 ```
 Generate the proposal DOCX for Accenture.
 ```
 
 ---
 
-## Deal folder structure (auto-created by BidBuddy)
+## Where to find your files
 
-Drop your client's folder on Desktop. BidBuddy creates all subfolders.
+After BidBuddy runs, everything lands in the deal folder on your Desktop:
 
 ```
 Desktop/
   Accenture/
     Deal Qualification/
-      iMocha_Accenture_RFPAnalysis.docx     ← auto-generated
-      iMocha_Accenture_BidQualResult.docx   ← auto-generated with score
+      iMocha_Accenture_RFPAnalysis.docx       ← RFP breakdown
+      iMocha_Accenture_BidQualResult.docx     ← qualification score
     RFI/
       Supplier Questionnaire/
-        iMocha_Accenture_Clarification.xlsx ← questions iMocha sends to client
+        iMocha_Accenture_Clarification.xlsx   ← questions to send client
       Auto Answer/
-        rfi_original.xlsx                   ← client's questionnaire (untouched)
-        rfi_filled.xlsx                     ← auto-answered copy
-        answers.md                          ← audit trail of answers + confidence
+        rfi_filled.xlsx                       ← completed client questionnaire
+        answers.md                            ← answer audit log
     RFP/
-      iMocha_Accenture_TA_Proposal_DRAFT.docx  ← branded proposal
+      iMocha_Accenture_TA_Proposal_DRAFT.docx ← final proposal
 ```
 
 ---
 
-## KB Documents (upload these to the Project)
+## Something went wrong?
 
-| # | File | Covers |
-|---|------|--------|
-| 1 | TA_Analytics_.docx | TA analytics features |
-| 2 | TA_Fn_Requriment.docx | TA functional requirements |
-| 3 | Conversational AI Interviews.docx | AI interview product (Tara) |
-| 4 | SI_Fn_Requirement.docx | Skills Intelligence features |
-| 5 | SI_Reporting/Analytics | SI reporting features |
-| 6 | Technical 1.docx | Architecture, APIs, integrations |
-| 7 | Security.docx | Security posture, certs, hosting |
-| 8 | SSO.docx | SSO and access management |
-| 9 | Support & Project Management.docx | Support tiers, SLAs |
-| 10 | Ethical AI.docx | AI ethics and fairness |
-| 11 | Company_Overview.docx | Company background |
-| 12 | LLM Skills Inferencing.docx | Skills taxonomy and LLM inference |
-| 13 | AI Governance.docx | AI governance framework |
-| 14 | AI FAQ Responses.docx | Common AI-related Q&A |
-| 15 | iMocha_AI_Inference_Engine.pdf | AI inference mechanics (shared TA+SI) |
-
----
-
-## Troubleshooting
-
-**🔨 icon not showing in Claude Desktop**
-→ Make sure you restarted Claude Desktop after running setup.sh
-→ Run setup.sh again, then restart
-
-**"Python not found" during setup**
-→ Download Python from python.org/downloads (get the latest version for macOS)
-→ Run setup.sh again after installing
-
-**Tool errors in chat**
-→ Ask your team lead — they can check the server logs
+| Problem | What to do |
+|---|---|
+| 🔨 icon not showing after restart | Run `setup.sh` again, then restart Claude Desktop |
+| "Python not found" in setup | Download Python from python.org/downloads, then re-run setup.sh |
+| Script fails on Step 2 | Screenshot the error and send to your team lead |
+| Claude gives a wrong answer | Flag it with `[CONFIRM:]` and send to your team lead to update the KB |
