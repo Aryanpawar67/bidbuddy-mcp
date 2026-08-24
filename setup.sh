@@ -2,7 +2,6 @@
 # ─────────────────────────────────────────────────────────────────
 #  BidBuddy — First-Time Setup Script
 #  Run this once when setting up on a new Mac.
-#  It will walk you through everything.
 # ─────────────────────────────────────────────────────────────────
 
 set -e
@@ -17,85 +16,129 @@ echo "  ╔═══════════════════════
 echo "  ║           BidBuddy  —  Setup                 ║"
 echo "  ╚══════════════════════════════════════════════╝"
 echo ""
-echo "  This script will do 3 things automatically:"
-echo "    1. Check that Python is installed on your Mac"
-echo "    2. Install the packages BidBuddy needs to run"
-echo "    3. Tell Claude Desktop where to find BidBuddy"
+echo "  This script will:"
+echo "    1. Check your Mac has everything it needs"
+echo "    2. Install the packages BidBuddy depends on"
+echo "    3. Connect BidBuddy to Claude Desktop"
 echo ""
-echo "  After this script finishes, you'll see 3 manual"
-echo "  steps to complete inside Claude Desktop."
+echo "  Your BidBuddy folder is at:"
+echo "    $SCRIPT_DIR"
 echo ""
 echo "  ──────────────────────────────────────────────"
 echo "  Press ENTER to start, or Ctrl+C to cancel."
 read -r
 
 
-# ── STEP 1 — Check Python ──────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════
+#  PHASE 1 — CHECK EVERYTHING BEFORE DOING ANYTHING
+# ══════════════════════════════════════════════════════════════════
 
 echo ""
-echo "  [ STEP 1 of 3 ]  Checking Python..."
+echo "  Checking your Mac..."
 echo ""
 
-if ! command -v python3 &>/dev/null; then
-    echo "  ✗  Python is not installed on this Mac."
+ALL_OK=true
+
+
+# ── Check 1: Python ───────────────────────────────────────────────
+
+if command -v python3 &>/dev/null; then
+    PYTHON_VER="$(python3 --version 2>&1)"
+    echo "  ✓  $PYTHON_VER found"
+else
+    echo "  ✗  Python is not installed"
+    ALL_OK=false
+fi
+
+
+# ── Check 2: Claude Desktop ───────────────────────────────────────
+
+if [ -d "$HOME/Applications/Claude.app" ] || [ -d "/Applications/Claude.app" ]; then
+    echo "  ✓  Claude Desktop found"
+else
+    echo "  ✗  Claude Desktop is not installed"
+    ALL_OK=false
+fi
+
+
+# ── If anything is missing — stop and explain ─────────────────────
+
+if [ "$ALL_OK" = false ]; then
     echo ""
-    echo "  ┌─ What to do ──────────────────────────────────────┐"
-    echo "  │  1. Open this link in your browser:               │"
-    echo "  │     https://www.python.org/downloads/             │"
-    echo "  │  2. Click the big yellow 'Download Python' button │"
-    echo "  │  3. Install it (just click through the steps)     │"
-    echo "  │  4. Come back here and run this script again      │"
-    echo "  └────────────────────────────────────────────────────┘"
+    echo "  ──────────────────────────────────────────────────────"
+    echo "  ✗  Setup cannot continue. Fix the items above first."
+    echo "  ──────────────────────────────────────────────────────"
+    echo ""
+
+    if ! command -v python3 &>/dev/null; then
+        echo "  ┌─ Install Python ───────────────────────────────────┐"
+        echo "  │  1. Open:  https://www.python.org/downloads/       │"
+        echo "  │  2. Click the yellow 'Download Python' button      │"
+        echo "  │  3. Open the downloaded file and click through     │"
+        echo "  └────────────────────────────────────────────────────┘"
+        echo ""
+    fi
+
+    if [ ! -d "$HOME/Applications/Claude.app" ] && [ ! -d "/Applications/Claude.app" ]; then
+        echo "  ┌─ Install Claude Desktop ───────────────────────────┐"
+        echo "  │  1. Open:  https://claude.ai/download              │"
+        echo "  │  2. Download Claude Desktop for Mac                │"
+        echo "  │  3. Open the downloaded file and install it        │"
+        echo "  └────────────────────────────────────────────────────┘"
+        echo ""
+    fi
+
+    echo "  Once installed, run this script again:"
+    echo "    bash ~/Desktop/bidbuddy-mcp/setup.sh"
     echo ""
     exit 1
 fi
 
-PYTHON_VER="$(python3 --version 2>&1)"
-echo "  ✓  $PYTHON_VER is installed — good to go."
+echo ""
+echo "  ✓  All checks passed. Starting setup..."
 
 
-# ── STEP 2 — Install packages ─────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════
+#  PHASE 2 — INSTALL AND CONFIGURE
+# ══════════════════════════════════════════════════════════════════
+
+# ── Step 1: Install packages ──────────────────────────────────────
 
 echo ""
-echo "  [ STEP 2 of 3 ]  Installing required packages..."
-echo "  (These let BidBuddy read Excel files, PDFs, and generate Word docs.)"
+echo "  ─────────────────────────────────────────────────────"
+echo "  [ Step 1 of 2 ]  Installing required packages"
+echo "  (These let BidBuddy read Excel files, PDFs, Word docs)"
+echo "  ─────────────────────────────────────────────────────"
 echo ""
 
 if python3 -m pip install -r "$SCRIPT_DIR/requirements.txt" --quiet --disable-pip-version-check 2>&1; then
-    echo "  ✓  All packages installed."
+    echo "  ✓  Packages installed"
 else
     echo ""
     echo "  ✗  Package install failed."
     echo ""
-    echo "  ┌─ What to do ──────────────────────────────────────┐"
-    echo "  │  Try running this command manually:               │"
-    echo "  │    python3 -m pip install -r requirements.txt     │"
-    echo "  │  If it still fails, contact your team lead.       │"
+    echo "  ┌─ What to do ───────────────────────────────────────┐"
+    echo "  │  Try running this command manually:                │"
+    echo "  │    python3 -m pip install -r requirements.txt      │"
+    echo "  │  If it still fails, send a screenshot to your      │"
+    echo "  │  team lead.                                        │"
     echo "  └────────────────────────────────────────────────────┘"
     echo ""
     exit 1
 fi
 
 
-# ── STEP 3 — Configure Claude Desktop ─────────────────────────────────────────
+# ── Step 2: Write Claude Desktop config ──────────────────────────
 
 echo ""
-echo "  [ STEP 3 of 3 ]  Connecting BidBuddy to Claude Desktop..."
-echo "  (Adding BidBuddy to Claude's settings file so it can use the tools.)"
+echo "  ─────────────────────────────────────────────────────"
+echo "  [ Step 2 of 2 ]  Connecting BidBuddy to Claude Desktop"
+echo "  ─────────────────────────────────────────────────────"
 echo ""
-
-# Check Claude Desktop is installed
-if [ ! -d "$HOME/Applications/Claude.app" ] && [ ! -d "/Applications/Claude.app" ]; then
-    echo "  ✗  Claude Desktop is not installed."
-    echo ""
-    echo "  ┌─ What to do ──────────────────────────────────────┐"
-    echo "  │  1. Open: https://claude.ai/download              │"
-    echo "  │  2. Download and install Claude Desktop for Mac   │"
-    echo "  │  3. Come back here and run this script again      │"
-    echo "  └────────────────────────────────────────────────────┘"
-    echo ""
-    exit 1
-fi
+echo "  Detected your BidBuddy server path as:"
+echo "    $SCRIPT_DIR/server.py"
+echo "  (This path is written into Claude's settings automatically.)"
+echo ""
 
 mkdir -p "$CONFIG_DIR"
 
@@ -103,6 +146,7 @@ if [ ! -f "$CONFIG_FILE" ]; then
     echo '{"mcpServers":{}}' > "$CONFIG_FILE"
 fi
 
+# Merge bidbuddy into existing config — preserves any other MCP servers already set up
 python3 - "$CONFIG_FILE" "$SCRIPT_DIR/server.py" <<'PYEOF'
 import json, sys
 
@@ -124,44 +168,39 @@ with open(config_path, "w") as f:
     json.dump(config, f, indent=2)
 PYEOF
 
-echo "  ✓  Claude Desktop configured."
-echo "     Settings saved to:"
-echo "     $CONFIG_FILE"
+echo "  ✓  Claude Desktop settings updated"
+echo "     File: $CONFIG_FILE"
 
 
-# ── ALL DONE — What to do next ────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════
+#  DONE — NEXT STEPS
+# ══════════════════════════════════════════════════════════════════
 
 echo ""
-echo "  ══════════════════════════════════════════════"
-echo "  ✓  Setup complete! 3 steps left — in Claude."
-echo "  ══════════════════════════════════════════════"
+echo "  ╔══════════════════════════════════════════════╗"
+echo "  ║   ✓  Setup complete!                         ║"
+echo "  ║      Do these 3 steps in Claude Desktop:     ║"
+echo "  ╚══════════════════════════════════════════════╝"
 echo ""
-echo "  Do these steps inside Claude Desktop:"
+echo "  ┌─ Step A — Restart Claude Desktop ─────────────────┐"
+echo "  │  Quit Claude (⌘Q) and reopen it.                  │"
+echo "  │  → You should see a 🔨 icon in the chat bar.      │"
+echo "  │    That means BidBuddy is connected.              │"
+echo "  └────────────────────────────────────────────────────┘"
 echo ""
-echo "  ┌─ Step A ──────────────────────────────────────────────┐"
-echo "  │  Quit Claude Desktop and reopen it.                   │"
-echo "  │  (Press ⌘Q to quit, then reopen from Applications)   │"
-echo "  │                                                        │"
-echo "  │  → Look for the 🔨 icon in the chat bar.              │"
-echo "  │    If you see it, BidBuddy is connected.              │"
-echo "  └────────────────────────────────────────────────────────┘"
+echo "  ┌─ Step B — Create the BidBuddy Project ────────────┐"
+echo "  │  In Claude Desktop:                               │"
+echo "  │  → Click 'New Project' in the left sidebar        │"
+echo "  │  → Name it: BidBuddy                              │"
+echo "  └────────────────────────────────────────────────────┘"
 echo ""
-echo "  ┌─ Step B ──────────────────────────────────────────────┐"
-echo "  │  Create a new Project in Claude Desktop.              │"
-echo "  │                                                        │"
-echo "  │  → Click 'New Project' in the left sidebar            │"
-echo "  │  → Name it: BidBuddy                                  │"
-echo "  └────────────────────────────────────────────────────────┘"
+echo "  ┌─ Step C — Add KB files + Instructions ────────────┐"
+echo "  │  ⚠  Get these from your admin — not from GitHub.  │"
+echo "  │                                                    │"
+echo "  │  → In the BidBuddy project, click 'Add Content'   │"
+echo "  │    and upload the 14 KB documents                 │"
+echo "  │  → Paste the Project Instructions text            │"
+echo "  └────────────────────────────────────────────────────┘"
 echo ""
-echo "  ┌─ Step C ──────────────────────────────────────────────┐"
-echo "  │  Add the KB files and instructions to the Project.    │"
-echo "  │  ⚠  These are handed to you by your admin/team lead.  │"
-echo "  │     Do NOT download them from anywhere else.          │"
-echo "  │                                                        │"
-echo "  │  → Upload the KB documents via 'Add Content'          │"
-echo "  │  → Paste the Project Instructions text                │"
-echo "  └────────────────────────────────────────────────────────┘"
-echo ""
-echo "  Once all 3 are done, open a chat in the BidBuddy project"
-echo "  and start talking. You're all set!"
+echo "  You're done. Open a chat in the BidBuddy project and start."
 echo ""
