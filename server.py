@@ -1922,6 +1922,76 @@ def parse_rfi_xlsx(deal_id: str, xlsx_path: str) -> str:
     from openpyxl.cell.cell import MergedCell as _MergedCell
     wb = openpyxl.load_workbook(original_dest, data_only=True)
 
+    # ── Customer rules from Instructions sheet ─────────────────────────────────
+    _SKIP_SHEETS = {"Instructions", "Dropdowns"}
+    instructions_rules = []
+    if "Instructions" in wb.sheetnames:
+        for _irow in wb["Instructions"].iter_rows(values_only=True):
+            for _iv in _irow:
+                if _iv and isinstance(_iv, str) and len(_iv.strip()) > 15:
+                    instructions_rules.append(_iv.strip())
+
+    def _get_fill_type(sname: str, ws) -> dict:
+        """Return fill_type + constraints dict for a sheet."""
+        if sname in _SKIP_SHEETS:
+            return {"fill_type": "skip"}
+        nl = sname.lower()
+        if "pricing" in nl:
+            return {"fill_type": "pricing_table"}
+        if "contact" in nl:
+            return {"fill_type": "contact_form"}
+        if "reference" in nl:
+            return {"fill_type": "reference_form"}
+        import re as _re_ft
+        char_limit = None
+        dropdown_vals: list = []
+        for dv in ws.data_validations.dataValidation:
+            if dv.type == "textLength" and dv.formula1:
+                try:
+                    char_limit = int(dv.formula1)
+                except (ValueError, TypeError):
+                    pass
+            elif dv.type == "list" and dv.formula1:
+                f1 = str(dv.formula1)
+                if f1.startswith('"'):
+                    dropdown_vals = [v.strip() for v in f1.strip('"').split(',') if v.strip()]
+        # Also scan column headers and first few rows for plain-text limit mentions
+        # e.g. "Max 600 characters", "Limit: 250 words", "(max 500 chars)"
+        if not char_limit:
+            _CHAR_PAT  = _re_ft.compile(r'(?:max(?:imum)?|limit)[:\s]*(\d+)\s*char', _re_ft.IGNORECASE)
+            _WORD_PAT  = _re_ft.compile(r'(?:max(?:imum)?|limit)[:\s]*(\d+)\s*word',  _re_ft.IGNORECASE)
+            _PAREN_PAT = _re_ft.compile(r'\((?:max|limit)[:\s]*(\d+)\s*(?:char|word)',  _re_ft.IGNORECASE)
+            for _row in ws.iter_rows(max_row=5, values_only=True):
+                for _cell in _row:
+                    if not _cell or not isinstance(_cell, str):
+                        continue
+                    for pat in (_CHAR_PAT, _PAREN_PAT):
+                        m = pat.search(_cell)
+                        if m:
+                            char_limit = int(m.group(1))
+                            break
+                    if char_limit:
+                        break
+                if char_limit:
+                    break
+        # 0-4 scoring pattern in cell content
+        for _drow in ws.iter_rows(max_row=20, values_only=True):
+            for _dc in _drow:
+                if _dc and isinstance(_dc, str) and "0,1,2,3,4" in _dc:
+                    return {"fill_type": "numeric_score", "valid_values": ["0","1","2","3","4"]}
+        # Pull dropdown values from the Dropdowns sheet if not found inline
+        if not dropdown_vals and "Dropdowns" in wb.sheetnames:
+            for _ddr in wb["Dropdowns"].iter_rows(min_row=2, values_only=True):
+                _ddv = _ddr[0] if _ddr else None
+                if _ddv and str(_ddv).strip():
+                    dropdown_vals.append(str(_ddv).strip())
+        result: dict = {"fill_type": "qa_freetext"}
+        if char_limit:
+            result["char_limit"] = char_limit
+        if dropdown_vals:
+            result["valid_values"] = dropdown_vals
+        return result
+
     # ── Column signal sets for scored detection ────────────────────────────────
     Q_SIGNALS      = ["question", "requirement", "description", "ask", "query", "item",
                       "criteria", "criterion", "area", "topic", "specification", "parameter", "text"]
@@ -1965,11 +2035,17 @@ def parse_rfi_xlsx(deal_id: str, xlsx_path: str) -> str:
         return q_col, a_col, st_col, cx_cols, confident
 
     def _col_letter(idx):
-        if idx is None or idx >= 26:
+        if idx is None:
             return "?"
-        return chr(65 + idx)
+        n = idx + 1
+        s = ""
+        while n:
+            n, r = divmod(n - 1, 26)
+            s = chr(65 + r) + s
+        return s
 
     # ── Build structure — merge-aware ─────────────────────────────────────────
+    col_map_to_save: dict = {}
     structure = {}
     for sheet_name in wb.sheetnames:
         ws = wb[sheet_name]
@@ -2013,6 +2089,13 @@ def parse_rfi_xlsx(deal_id: str, xlsx_path: str) -> str:
         "",
     ]
 
+    # Show customer rules extracted from Instructions sheet
+    if instructions_rules:
+        lines.append("⚠  CUSTOMER RULES (from Instructions sheet — must be followed):")
+        for rule in instructions_rules[:12]:
+            lines.append(f"   • {rule[:120]}")
+        lines.append("")
+
     total_questions = 0
     # track per-sheet answerable rows for the params block
     sheet_answerable: dict = {}
@@ -2043,7 +2126,7 @@ def parse_rfi_xlsx(deal_id: str, xlsx_path: str) -> str:
         q_col, a_col, st_col, cx_cols, confident = _detect_cols(hdr)
         sheet_col_map[sheet_name] = (q_col, a_col, st_col, cx_cols, confident)
 
-        # Sheet-type detection: collect section names from banner rows
+        # Sheet-type (for answering guidance) and fill-type (for constraints)
         section_names = [
             next((c for c in r["cells"] if c), "")
             for r in rows_data if r["is_category_header"]
@@ -2052,13 +2135,47 @@ def parse_rfi_xlsx(deal_id: str, xlsx_path: str) -> str:
         sheet_col_map[sheet_name] = (q_col, a_col, st_col, cx_cols, confident, stype)
         type_label = _SHEET_TYPE_LABELS.get(stype, stype)
 
+        ws_live = wb[sheet_name]
+        ft_info = _get_fill_type(sheet_name, ws_live)
+        fill_type    = ft_info.get("fill_type", "qa_freetext")
+        char_limit   = ft_info.get("char_limit")
+        valid_values = ft_info.get("valid_values")
+        a_letter     = _col_letter(a_col) if a_col is not None else "B"
+        ft_info["answer_col_letter"] = a_letter
+        col_map_to_save[sheet_name] = ft_info
+
+        # Non-fillable sheets: show a brief banner and skip question listing
+        _FT_SKIP_LABELS = {
+            "skip":          "⏩ SKIP — read-only (Instructions / Dropdowns source)",
+            "pricing_table": "💰 PRICING TABLE — fill manually (numeric/multi-column)",
+            "contact_form":  "📋 CONTACT FORM — fill manually (label→value rows)",
+            "reference_form":"📋 REFERENCE FORM — fill manually (label→value rows)",
+        }
+        if fill_type in _FT_SKIP_LABELS:
+            lines.append(f"│  {_FT_SKIP_LABELS[fill_type]}")
+            lines.append(f"└─ 0 fill-target rows (skipped by fill engine)")
+            lines.append("")
+            sheet_answerable[sheet_name] = []
+            continue
+
         lines.append("│")
         lines.append(f"│  ── Sheet type: {type_label} ──")
+        # Constraint banner
+        if fill_type == "numeric_score":
+            lines.append(f"│  ⚠ NUMERIC SCORE SHEET — answers must be one of: {valid_values}")
+            lines.append(f"│    Write the digit only (0=Not Supported … 4=Fully Supported)")
+        elif fill_type == "qa_freetext":
+            if char_limit:
+                lines.append(f"│  ⚠ {char_limit}-CHARACTER LIMIT per cell — YOU must write within this limit.")
+                lines.append(f"│    Condense your answer to fit while keeping all key points and intent.")
+                lines.append(f"│    Do NOT rely on auto-trim — a hard cut destroys meaning.")
+            if valid_values:
+                lines.append(f"│  ⚠ VALID VALUES: {valid_values}  (dropdown — use exact casing)")
         lines.append("│")
         conf_badge = "✅ auto-detected" if confident else "⚠️  low confidence — please verify"
         lines.append(f"│  ── Column detection ({conf_badge}) ──")
         lines.append(f"│  Questions to READ   → col {_col_letter(q_col)}  \"{hdr[q_col] if q_col is not None and q_col < len(hdr) else '?'}\"{'  ✅' if confident else '  ⚠️ guessed'}")
-        lines.append(f"│  Response to WRITE   → col {_col_letter(a_col)}  \"{hdr[a_col] if a_col is not None and a_col < len(hdr) else 'empty — will be created'}\"{'  ✅' if confident else '  ⚠️ guessed'}")
+        lines.append(f"│  Response to WRITE   → col {a_letter}  \"{hdr[a_col] if a_col is not None and a_col < len(hdr) else 'empty — will be created'}\"{'  ✅' if confident else '  ⚠️ guessed'}")
         if st_col is not None:
             lines.append(f"│  YES/NO/NA Status    → col {_col_letter(st_col)}  \"{hdr[st_col] if st_col < len(hdr) else '?'}\"  ✅")
         else:
@@ -2102,14 +2219,15 @@ def parse_rfi_xlsx(deal_id: str, xlsx_path: str) -> str:
         lines.append(f"└─ {len(answerable_rows)} fill-target rows  |  {len(skip_rows)} banner rows (skipped automatically)")
         lines.append("")
 
-    # ── Parameters block ──────────────────────────────────────────────────────
-    first_sheet = next(iter(sheet_col_map), None)
-    first_entry = sheet_col_map[first_sheet] if first_sheet else (None, None, None, [], False, "general_rfi")
-    fq, fa, fst, fcx, _fconf, _fstype = first_entry
+    # ── Save per-sheet column map for fill_rfi_xlsx ──────────────────────────
+    (dest_folder / "rfi_col_map.json").write_text(json.dumps(col_map_to_save, indent=2))
 
+    # ── Parameters block ──────────────────────────────────────────────────────
     answerable_flat = {sn: rows for sn, rows in sheet_answerable.items() if rows}
-    # confident flag is index 4; stype is index 5
-    any_uncertain = not all(v[4] for v in sheet_col_map.values())
+    fillable_sheets = {sn: v for sn, v in sheet_col_map.items()
+                       if col_map_to_save.get(sn, {}).get("fill_type") == "qa_freetext"
+                       or col_map_to_save.get(sn, {}).get("fill_type") == "numeric_score"}
+    any_uncertain = not all(v[4] for v in fillable_sheets.values()) if fillable_sheets else False
 
     lines += ["═" * 70, f"TOTAL FILL-TARGET QUESTIONS: {total_questions}", ""]
 
@@ -2126,14 +2244,20 @@ def parse_rfi_xlsx(deal_id: str, xlsx_path: str) -> str:
         lines.append("✅  Columns detected with confidence. Please confirm before I proceed.")
         lines.append("")
 
+    lines.append("  Per-sheet answer column mapping (auto-saved to rfi_col_map.json):")
+    for sn, ft in col_map_to_save.items():
+        ft_label = ft.get("fill_type", "?")
+        a_let = ft.get("answer_col_letter", "?")
+        extras = []
+        if ft.get("char_limit"):
+            extras.append(f"limit={ft['char_limit']}chars")
+        if ft.get("valid_values"):
+            extras.append(f"values={ft['valid_values']}")
+        extras_str = f"  [{', '.join(extras)}]" if extras else ""
+        lines.append(f"    \"{sn}\"  →  fill_type={ft_label}  answer_col={a_let}{extras_str}")
     lines += [
-        "  Current mapping:",
-        f"    Questions (read)   : col {_col_letter(fq)}",
-        f"    Response (write)   : col {_col_letter(fa)}",
-        f"    YES/NO/NA status   : col {_col_letter(fst) if fst is not None else '[not set — specify a letter or omit]'}",
-        f"    Context / detail   : {', '.join('col ' + _col_letter(i) for i in fcx) if fcx else '[none — specify a letter or omit]'}",
         "",
-        "  To override any column, reply:",
+        "  To override a column, reply:",
         "    Q=<letter>  A=<letter>  Status=<letter>  Context=<letter>",
         "  Example:  Q=C  A=E  Status=F  Context=D",
         "",
@@ -2248,6 +2372,10 @@ def fill_rfi_xlsx(
     if not originals:
         return "Error: no original RFI file found. Run parse_rfi_xlsx first."
 
+    # Load per-sheet column map saved by parse_rfi_xlsx
+    col_map_path = auto_answer_dir / "rfi_col_map.json"
+    col_map: dict = json.loads(col_map_path.read_text()) if col_map_path.exists() else {}
+
     try:
         answers = json.loads(answers_json)
     except json.JSONDecodeError as e:
@@ -2260,7 +2388,7 @@ def fill_rfi_xlsx(
         letter = letter.upper().strip()
         return sum((ord(ch) - 64) * (26 ** i) for i, ch in enumerate(reversed(letter)))
 
-    answer_col_num = _col_num(answer_col)
+    default_answer_col_num = _col_num(answer_col)
     status_col_num = _col_num(status_col) if status_col.strip() else None
 
     STATUS_MAP = {"high": "Supported", "medium": "Partial", "low": "Review Required"}
@@ -2277,17 +2405,22 @@ def fill_rfi_xlsx(
     }
     confirm_tag = _CONFIRM_PREFIX.get(sheet_type.strip().lower(), "CONFIRM")
 
-    # ── Make a full copy of the original ─────────────────────────────────────
+    # ── Initialise rfi_filled — copy original only on first call ─────────────
+    # Subsequent calls patch the existing rfi_filled.xlsx so answers accumulate
+    # across multiple fill_rfi_xlsx calls (one per sheet group).
     original = originals[0]
     out = auto_answer_dir / "rfi_filled.xlsx"
-    shutil.copy2(original, out)
+    if not out.exists():
+        shutil.copy2(original, out)
 
     import re as _re
     import zipfile as _zf
     from io import BytesIO as _BytesIO
 
     filled = high_count = medium_count = low_count = skipped = merged_skipped = 0
+    truncated_count = invalid_val_count = 0
     sheet_counts = {}
+    over_limit_report: list[str] = []  # rows rejected for exceeding char limit
 
     def _col_letter(n: int) -> str:
         s = ""
@@ -2308,7 +2441,6 @@ def fill_rfi_xlsx(
     def _inline_cell(ref: str, val: str) -> str:
         return f'<c r="{ref}" t="inlineStr"><is><t xml:space="preserve">{_xml_esc(val)}</t></is></c>'
 
-    ans_letter = _col_letter(answer_col_num)
     stat_letter = _col_letter(status_col_num) if status_col_num is not None else None
 
     # Group answers by sheet, keyed by row number
@@ -2337,8 +2469,9 @@ def fill_rfi_xlsx(
             "answer": answer, "confidence": confidence, "kb_source": kb_source,
         })
 
-    def _patch_ws(ws_xml: str, by_row: dict) -> str:
-        """Surgically insert/replace only the answer and status cells in each
+    def _patch_ws(ws_xml: str, by_row: dict, a_col_num: int, a_col_letter: str,
+                  s_col_num=None, s_col_letter=None) -> str:
+        """Surgically insert/replace only the answer and optional status cells in each
         targeted row, leaving all other XML — styles, merges, formulas, images —
         completely untouched."""
 
@@ -2366,11 +2499,12 @@ def fill_rfi_xlsx(
                 if letters_m:
                     cells[_col_num_from_letters(letters_m.group(1))] = cm.group(0)
 
-            # Apply our cells
-            cells[answer_col_num] = _inline_cell(f"{ans_letter}{rn}", u["answer"])
-            if status_col_num is not None and stat_letter:
-                cells[status_col_num] = _inline_cell(
-                    f"{stat_letter}{rn}", STATUS_MAP[u["confidence"]]
+            # Write answer cell
+            cells[a_col_num] = _inline_cell(f"{a_col_letter}{rn}", u["answer"])
+            # Write status cell only when explicitly requested
+            if s_col_num is not None and s_col_letter:
+                cells[s_col_num] = _inline_cell(
+                    f"{s_col_letter}{rn}", STATUS_MAP[u["confidence"]]
                 )
 
             # Reconstruct row in column order
@@ -2382,11 +2516,18 @@ def fill_rfi_xlsx(
         return _re.sub(r"<row\b[^>]*>.*?</row>|<row\b[^>]*/?>", patch_row_match, ws_xml, flags=_re.DOTALL)
 
     # Parse workbook.xml to build sheet name → worksheet file path map
+    # Use attribute-order-independent matching (XML spec allows any order)
     buf = _BytesIO()
     with _zf.ZipFile(out, "r") as zin:
-        wb_xml  = zin.read("xl/workbook.xml").decode("utf-8")
+        wb_xml   = zin.read("xl/workbook.xml").decode("utf-8")
         rels_xml = zin.read("xl/_rels/workbook.xml.rels").decode("utf-8")
-        sheet_rid  = dict(_re.findall(r'<sheet\b[^>]*\bname="([^"]+)"[^>]*\br:id="([^"]+)"', wb_xml))
+        sheet_rid: dict = {}
+        for _stag in _re.finditer(r'<sheet\b([^>]*)/?>', wb_xml):
+            _attrs = _stag.group(1)
+            _nm = _re.search(r'\bname="([^"]+)"', _attrs)
+            _ri = _re.search(r'\br:id="([^"]+)"', _attrs)
+            if _nm and _ri:
+                sheet_rid[_nm.group(1)] = _ri.group(1)
         rid_target = dict(_re.findall(r'<Relationship\b[^>]*\bId="([^"]+)"[^>]*\bTarget="([^"]+)"', rels_xml))
         sheet_file: dict = {}
         for name, rid in sheet_rid.items():
@@ -2394,21 +2535,65 @@ def fill_rfi_xlsx(
             if target.startswith("worksheets/"):
                 sheet_file[name] = f"xl/{target}"
 
-        # Patch only the worksheets that have answers
+        # Patch only the worksheets that have answers, applying per-sheet rules
         modified: dict = {}
         for sheet_name, by_row in updates_by_sheet.items():
             if sheet_name not in sheet_file:
                 skipped += len(by_row)
                 continue
-            path = sheet_file[sheet_name]
-            patched = _patch_ws(zin.read(path).decode("utf-8"), by_row)
-            modified[path] = patched.encode("utf-8")
-            for u in by_row.values():
-                filled += 1
-                sheet_counts[sheet_name] = sheet_counts.get(sheet_name, 0) + 1
-                if u["confidence"] == "high":   high_count += 1
-                elif u["confidence"] == "medium": medium_count += 1
-                else:                             low_count += 1
+
+            # Per-sheet constraints from col_map
+            sheet_meta   = col_map.get(sheet_name, {})
+            fill_type    = sheet_meta.get("fill_type", "qa_freetext")
+            char_limit   = sheet_meta.get("char_limit")
+            valid_values = sheet_meta.get("valid_values")
+
+            # Skip read-only / manual sheets
+            if fill_type in ("skip", "pricing_table", "contact_form", "reference_form"):
+                skipped += len(by_row)
+                continue
+
+            # Per-sheet answer column: col_map takes priority, then parameter fallback
+            raw_a_letter = sheet_meta.get("answer_col_letter", answer_col).upper().strip()
+            sheet_a_num  = _col_num(raw_a_letter)
+            sheet_a_letter = _col_letter(sheet_a_num)
+
+            # Status column: only write for free-text sheets (not numeric/dropdown)
+            write_status  = (fill_type == "qa_freetext") and (status_col_num is not None)
+            eff_s_num     = status_col_num if write_status else None
+            eff_s_letter  = stat_letter    if write_status else None
+
+            # Apply constraints to every answer in this sheet before patching
+            for rn, u in by_row.items():
+                ans = u["answer"]
+                # Char limit enforcement: reject oversized answers rather than silently cutting them.
+                # A hard cut destroys meaning; the caller must re-submit a condensed answer.
+                if char_limit and len(ans) > char_limit:
+                    u["_over_limit"] = len(ans)
+                    truncated_count += 1
+                    over_limit_report.append(
+                        f"  • Sheet '{sheet_name}' row {rn}: {len(ans)} chars "
+                        f"(limit {char_limit}) — NOT written, re-submit shorter"
+                    )
+                # Numeric score validation: warn on non-numeric but still write
+                if fill_type == "numeric_score" and valid_values and ans not in valid_values:
+                    invalid_val_count += 1
+
+            # Separate over-limit rows — don't write them; report them for re-submission
+            over_limit_rows = {rn: u for rn, u in by_row.items() if u.get("_over_limit")}
+            ok_rows         = {rn: u for rn, u in by_row.items() if not u.get("_over_limit")}
+
+            if ok_rows:
+                path    = sheet_file[sheet_name]
+                patched = _patch_ws(zin.read(path).decode("utf-8"), ok_rows,
+                                     sheet_a_num, sheet_a_letter, eff_s_num, eff_s_letter)
+                modified[path] = patched.encode("utf-8")
+                for u in ok_rows.values():
+                    filled += 1
+                    sheet_counts[sheet_name] = sheet_counts.get(sheet_name, 0) + 1
+                    if u["confidence"] == "high":   high_count += 1
+                    elif u["confidence"] == "medium": medium_count += 1
+                    else:                             low_count += 1
 
         # Rewrite the ZIP: swap patched sheets, copy everything else verbatim
         with _zf.ZipFile(buf, "w", _zf.ZIP_DEFLATED) as zout:
@@ -2430,11 +2615,22 @@ def fill_rfi_xlsx(
         f"  Partial (medium)  : {medium_count}\n"
         f"  Review Req. (low) : {low_count}  (KB did not cover — human must fill)\n"
         f"  Category headers  : {merged_skipped}  (merged rows — correctly skipped)\n"
-        f"  Invalid refs      : {skipped}  (bad sheet name or row number)\n"
+        f"  Skipped sheets    : {skipped}  (skip/pricing/contact/reference — fill manually)\n"
     )
+    if truncated_count > 0:
+        result += (
+            f"\n✂  OVER-LIMIT ANSWERS SKIPPED ({truncated_count}) — these were NOT written to the file.\n"
+            f"   Re-submit fill_rfi_xlsx with shorter, complete answers for these rows.\n"
+            f"   Condense to fit the limit while keeping all key points and intent:\n"
+        )
+        for line in over_limit_report:
+            result += line + "\n"
+    if invalid_val_count > 0:
+        result += f"  ⚠ Invalid values  : {invalid_val_count}  (numeric/dropdown sheet — values may need correction)\n"
     if status_col_num is not None:
-        result += f"  Status column     : {status_col.upper()}  (colour-coded badges written)\n"
+        result += f"  Status column     : {status_col.upper()}  (colour-coded badges written to qa_freetext sheets only)\n"
     result += f"\nOriginal preserved  : {original}  (unchanged)\n"
+    result += f"Cumulative fills    : rfi_filled.xlsx accumulates across multiple calls\n"
 
     if low_count > 0:
         result += (
