@@ -2889,6 +2889,140 @@ def save_explicit_asks(deal_id: str, asks_text: str) -> str:
     )
 
 
+# ── RFI verification helpers ───────────────────────────────────────────────────
+
+@mcp.tool()
+def inspect_rfi_xlsx(deal_id: str, columns: str = "", max_rows: int = 10) -> str:
+    """
+    Read actual cell values from rfi_filled.xlsx so Claude can verify its own work
+    with certainty instead of guessing.
+
+    Call this immediately after fill_rfi_xlsx to confirm:
+      - Which column the answers landed in
+      - Whether the text looks correct and complete
+      - Whether the char limit was respected
+
+    Args:
+        deal_id:  Client name (e.g. "AB InBev")
+        columns:  Comma-separated column letters to inspect (e.g. "B,N").
+                  Leave empty to auto-show every sheet's answer column from col_map.
+        max_rows: Max answer rows to show per sheet (default 10). Use 0 for all rows.
+    """
+    import openpyxl as _opx
+    from openpyxl.cell.cell import MergedCell as _MC
+
+    meta = _load_meta(deal_id)
+    base = Path(meta["base_path"])
+    auto_dir = base / "RFI" / "Auto Answer"
+
+    filled = auto_dir / "rfi_filled.xlsx"
+    if not filled.exists():
+        return "rfi_filled.xlsx not found. Run fill_rfi_xlsx first."
+
+    col_map_path = auto_dir / "rfi_col_map.json"
+    col_map: dict = json.loads(col_map_path.read_text()) if col_map_path.exists() else {}
+
+    # Which column letters to inspect
+    if columns.strip():
+        target_letters = [c.strip().upper() for c in columns.split(",") if c.strip()]
+    else:
+        # default: answer column per sheet from col_map
+        target_letters = list({v.get("answer_col_letter", "B").upper()
+                                for v in col_map.values() if v.get("answer_col_letter")})
+        if not target_letters:
+            target_letters = ["B"]
+
+    def _col_num(letter: str) -> int:
+        letter = letter.upper().strip()
+        return sum((ord(ch) - 64) * (26 ** i) for i, ch in enumerate(reversed(letter)))
+
+    wb = _opx.load_workbook(filled, data_only=True)
+    lines = [
+        f"═══════════════════════════════════════════════════",
+        f"VERIFY: rfi_filled.xlsx  —  {filled}",
+        f"Inspecting columns: {', '.join(target_letters)}",
+        f"═══════════════════════════════════════════════════",
+        "",
+    ]
+
+    for sheet_name in wb.sheetnames:
+        ws = wb[sheet_name]
+        sheet_meta = col_map.get(sheet_name, {})
+        fill_type = sheet_meta.get("fill_type", "?")
+        char_limit = sheet_meta.get("char_limit")
+
+        # Determine which col numbers to inspect for this sheet
+        inspect_nums = [_col_num(l) for l in target_letters]
+
+        # Collect non-empty answer cells
+        found_rows = []
+        for row in ws.iter_rows():
+            for cell in row:
+                if isinstance(cell, _MC):
+                    continue
+                if cell.column not in inspect_nums:
+                    continue
+                val = cell.value
+                if val is None or str(val).strip() == "":
+                    continue
+                col_letter = cell.column_letter
+                text = str(val)
+                over = f"  ⚠ OVER LIMIT ({len(text)}/{char_limit})" if char_limit and len(text) > char_limit else ""
+                found_rows.append((cell.row, col_letter, text, over))
+
+        if not found_rows:
+            lines.append(f"Sheet '{sheet_name}'  [{fill_type}]  — no content in {target_letters}")
+            lines.append("")
+            continue
+
+        limit_label = f"  char_limit={char_limit}" if char_limit else ""
+        lines.append(f"Sheet '{sheet_name}'  [{fill_type}]{limit_label}  —  {len(found_rows)} cells with content:")
+        display = found_rows if max_rows == 0 else found_rows[:max_rows]
+        for rn, cl, text, over in display:
+            preview = text[:120] + ("…" if len(text) > 120 else "")
+            lines.append(f"  Row {rn:>3}  col {cl}  ({len(text):>4} chars){over}")
+            lines.append(f"           {preview}")
+        if max_rows and len(found_rows) > max_rows:
+            lines.append(f"  … {len(found_rows) - max_rows} more rows (pass max_rows=0 to see all)")
+        lines.append("")
+
+    lines.append(f"File size: {filled.stat().st_size:,} bytes")
+    return "\n".join(lines)
+
+
+@mcp.tool()
+def reset_rfi_filled(deal_id: str) -> str:
+    """
+    Delete rfi_filled.xlsx so the next fill_rfi_xlsx call starts from a clean copy
+    of the original instead of accumulating on top of previous (possibly wrong) fills.
+
+    Use this when:
+      - Answers landed in the wrong column and need to be rewritten from scratch
+      - The file has accumulated duplicate answers across multiple fill calls
+      - You want to retry the entire fill with corrected parameters
+
+    The original rfi_original.xlsx is NEVER touched.
+
+    Args:
+        deal_id: Client name (e.g. "AB InBev")
+    """
+    meta = _load_meta(deal_id)
+    base = Path(meta["base_path"])
+    auto_dir = base / "RFI" / "Auto Answer"
+
+    filled = auto_dir / "rfi_filled.xlsx"
+    if not filled.exists():
+        return "rfi_filled.xlsx does not exist — nothing to reset."
+
+    size = filled.stat().st_size
+    filled.unlink()
+    return (
+        f"✓ rfi_filled.xlsx deleted ({size:,} bytes).\n"
+        f"Next fill_rfi_xlsx call will create a fresh copy from rfi_original.xlsx.\n"
+        f"Original preserved: {auto_dir / 'rfi_original.xlsx'}"
+    )
+
+
 # ── Entry point ────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
