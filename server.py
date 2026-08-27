@@ -1917,7 +1917,8 @@ def parse_rfi_xlsx(deal_id: str, xlsx_path: str) -> str:
 
     # Copy original — this file is NEVER modified
     original_dest = dest_folder / f"rfi_original{src.suffix}"
-    shutil.copy2(src, original_dest)
+    if src.resolve() != original_dest.resolve():
+        shutil.copy2(src, original_dest)
 
     from openpyxl.cell.cell import MergedCell as _MergedCell
     wb = openpyxl.load_workbook(original_dest, data_only=True)
@@ -2553,8 +2554,8 @@ def fill_rfi_xlsx(
                 skipped += len(by_row)
                 continue
 
-            # Per-sheet answer column: col_map takes priority, then parameter fallback
-            raw_a_letter = sheet_meta.get("answer_col_letter", answer_col).upper().strip()
+            # Explicit answer_col parameter always wins over auto-detected col_map
+            raw_a_letter = answer_col.upper().strip()
             sheet_a_num  = _col_num(raw_a_letter)
             sheet_a_letter = _col_letter(sheet_a_num)
 
