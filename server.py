@@ -274,9 +274,12 @@ ANSWERING RULES — Technical Specification
 
     "general_rfi": """\
 ANSWERING RULES — General RFI
-  • Source answers from product KB and deal context.
-  • confidence 'medium' when KB covers the topic partially.
-  • confidence 'low' + [CONFIRM: <what to verify>] when KB is silent.""",
+  • Source answers from product KB and deal context; cross-section synthesis is encouraged.
+  • Write comprehensive, structured, sales-quality answers — not brief summaries.
+  • confidence 'high' for direct KB coverage; write full detail with proof points.
+  • confidence 'medium' when KB partially covers the topic; write the best answer available.
+  • confidence 'low' + [CONFIRM: <what to verify>] ONLY when KB is completely silent
+    (commercial pricing, TBD items, out-of-scope platform questions); never for product capabilities.""",
 }
 
 
@@ -289,7 +292,7 @@ def _detect_sheet_type(sheet_name: str, headers: list, section_names: list) -> s
             if sig in combined:
                 scores[stype] += 1
     best = max(scores, key=lambda t: scores[t])
-    return best if scores[best] > 0 else "general_rfi"
+    return best if scores[best] >= 3 else "general_rfi"
 
 
 # ── Deal management ────────────────────────────────────────────────────────────
@@ -2315,21 +2318,36 @@ def fill_rfi_xlsx(
       4. Never modifies the original file
 
     ══════════════════════════════════════════════════════════════
-    ANSWERING MODE: KB ONLY — STRICTLY ENFORCED
+    ANSWERING MODE — KB SOURCED, FULLY SYNTHESISED
     ══════════════════════════════════════════════════════════════
-    Every answer is a RETRIEVAL from the project KB files —
-    not a generation, inference, or recall from training data.
-    Search the uploaded KB documents for language that directly
-    answers each question. Quote or paraphrase from those files.
+    Every answer must be faithfully sourced from the project KB files.
+    Cross-section synthesis is required — pull any proof point (named
+    features, customer references, SLA figures, integration details,
+    demo/video links) from ANY KB section where it is relevant to the
+    question, not only from the section whose heading matches.
+
+    ANSWER DEPTH & STRUCTURE — write at sales-consultant quality:
+      • Open with a direct stance: Yes / Partial / No.
+      • Use named bullet sub-sections where the topic has multiple facets.
+      • Include specific iMocha feature names (Tara, iMocha Projects,
+        Assessment Agent, Skill Inference Engine) when they apply.
+      • Include customer proof points (Capgemini, Deloitte, UN agencies,
+        L'Oréal, Philip Morris) when they substantiate a claim.
+      • Include concrete numbers (SLA %, RTO, RPO, skills count, language
+        count) when present in KB.
+      • Include demo/video links and document references when KB lists them.
+      • Use first person ("iMocha supports…", "We provide…").
 
     Confidence rules:
-      "high"   — KB contains a direct, specific answer
-      "medium" — KB partially covers the question
-      "low"    — KB does not cover it; set answer to [CONFIRM: <what to look up>]
-
-    Certifications, integrations, SLAs, pricing — NEVER assert unless
-    the exact claim appears word-for-word in a KB file.
-    Use first person ("iMocha supports...", "We provide...")
+      "high"   — KB directly and specifically covers this question.
+      "medium" — KB partially covers it; write the best available answer
+                 and signal uncertainty via the status badge — NOT via
+                 [CONFIRM] text in the answer cell.
+      "low"    — KB is completely silent on this topic; write
+                 [CONFIRM: <what to look up>] ONLY for genuinely absent
+                 topics (e.g. commercial pricing, TBD placeholders,
+                 scope-specific items). Never use [CONFIRM] for product
+                 capabilities the KB covers, even partially.
     ══════════════════════════════════════════════════════════════
 
     Args:
