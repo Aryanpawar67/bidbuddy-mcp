@@ -1,6 +1,7 @@
 # BidBuddy MCP — Gap Analysis & Roadmap
 
 _Audited: 2026-09-01 · Baseline commit: 61f2da1_
+_All 9 gaps implemented: 2026-09-01 · Commit: 48b3131_
 
 ---
 
@@ -13,11 +14,12 @@ Each gap has:
 
 ---
 
-## Priority 1 — Blocks daily RFI workflow
+## Priority 1 — Blocks daily RFI workflow ✅ All implemented
 
-### GAP-01 · No RFI-stage chat input handler
+### GAP-01 · No RFI-stage chat input handler ✅ IMPLEMENTED
 
 **Impact**: Daily · **Effort**: S · **Fix type**: Instruction + docstring
+**Shipped**: CHAT INPUT ROUTING block added to `fill_rfi_xlsx` docstring — routes any user row resolution/correction to the tool immediately.
 
 **Problem**
 
@@ -53,9 +55,10 @@ if the XLSX write fails.
 
 ---
 
-### GAP-02 · No surgical single-row RFI patch — undocumented
+### GAP-02 · No surgical single-row RFI patch — undocumented ✅ IMPLEMENTED
 
 **Impact**: Daily · **Effort**: S · **Fix type**: Docstring + example
+**Shipped**: SINGLE-ROW PATCH section with concrete example added to `fill_rfi_xlsx` docstring.
 
 **Problem**
 
@@ -74,9 +77,10 @@ The tool patches only targeted rows — all other cells remain unchanged."_
 
 ---
 
-### GAP-03 · `save_explicit_asks` is RFP-stage only; no stage-agnostic input persistence
+### GAP-03 · `save_explicit_asks` is RFP-stage only; no stage-agnostic input persistence ✅ IMPLEMENTED
 
 **Impact**: Daily · **Effort**: S · **Fix type**: New tool (small)
+**Shipped**: `save_deal_note(deal_id, stage, note_text)` — stages: qual|rfi|rfp|general. Appends to `Deal Notes/{stage}_notes.md`, loaded by `get_deal_context` automatically.
 
 **Problem**
 
@@ -106,11 +110,12 @@ the catch-all for everything else.
 
 ---
 
-## Priority 2 — Significant friction per bid
+## Priority 2 — Significant friction per bid ✅ All implemented
 
-### GAP-04 · No client questionnaire response ingestion
+### GAP-04 · No client questionnaire response ingestion ✅ IMPLEMENTED
 
 **Impact**: Per-bid · **Effort**: M · **Fix type**: New tool
+**Shipped**: `ingest_supplier_response(deal_id, xlsx_path)` — reads client's filled-back XLSX (col 4), saves `client_responses.md`, auto-loaded by `get_deal_context`.
 
 **Problem**
 
@@ -135,9 +140,10 @@ New tool: `ingest_supplier_response(deal_id, xlsx_path)`
 
 ---
 
-### GAP-05 · No second-document ingestion (addenda, amendments, email attachments)
+### GAP-05 · No second-document ingestion (addenda, amendments, email attachments) ✅ IMPLEMENTED
 
 **Impact**: Per-bid · **Effort**: M · **Fix type**: New tool / extend `ingest_rfp`
+**Shipped**: `ingest_rfp` gains a `label` param — when set, extracted text is APPENDED to `rfp_text.txt` with a dated section header instead of overwriting.
 
 **Problem**
 
@@ -169,9 +175,10 @@ tools (proposal, RFI) pick it up automatically.
 
 ---
 
-### GAP-06 · No proposal revision workflow
+### GAP-06 · No proposal revision workflow ✅ IMPLEMENTED
 
 **Impact**: Per-bid · **Effort**: L · **Fix type**: Logic + versioning
+**Shipped**: `generate_proposal_docx` auto-versions output files (DRAFT → v2 → v3, prior versions kept). Gains `revision_notes` param — persisted to `explicit_asks.md` for session continuity.
 
 **Problem**
 
@@ -194,11 +201,12 @@ Every revision requires a full re-run of `generate_proposal_docx` with an update
 
 ---
 
-## Priority 3 — Lower frequency, quality-of-life
+## Priority 3 — Lower frequency, quality-of-life ✅ All implemented
 
-### GAP-07 · No deal status / lifecycle tracking
+### GAP-07 · No deal status / lifecycle tracking ✅ IMPLEMENTED
 
 **Impact**: Occasional · **Effort**: S · **Fix type**: Logic
+**Shipped**: `update_deal_status(deal_id, status)` — statuses: active|submitted|won|lost|abandoned. `list_deals` shows status with emoji icon.
 
 **Problem**
 
@@ -215,9 +223,10 @@ Add `update_deal_status(deal_id, status)` that writes `status` to `meta.json`.
 
 ---
 
-### GAP-08 · `save_deal_insights` format is too rigid for qual-stage verbal inputs
+### GAP-08 · `save_deal_insights` format is too rigid for qual-stage verbal inputs ✅ IMPLEMENTED
 
 **Impact**: Occasional · **Effort**: S · **Fix type**: Docstring
+**Shipped**: `save_deal_insights` docstring loosened — Strengths/Weaknesses/Win-Strategy structure is now a recommendation, not a requirement. Free-form prose and verbal briefing notes accepted.
 
 **Problem**
 
@@ -234,9 +243,10 @@ free-form qual-stage inputs to `save_deal_note` (GAP-03) with `stage="qual"`.
 
 ---
 
-### GAP-09 · No activity / decision log per deal
+### GAP-09 · No activity / decision log per deal ✅ IMPLEMENTED
 
 **Impact**: Occasional · **Effort**: S · **Fix type**: Auto-append in tools
+**Shipped**: `_append_activity_log` helper wired to all 12 write tools — appends timestamped entries to `Deal Notes/activity_log.md` automatically.
 
 **Problem**
 
@@ -261,19 +271,18 @@ at the end of each tool's return.
 
 ## Summary Table
 
-| # | Gap | Impact | Effort | Fix Type |
-|---|-----|--------|--------|----------|
-| 01 | RFI chat input not routed to XLSX | Daily | S | Instruction |
-| 02 | Single-row patch undocumented | Daily | S | Docstring |
-| 03 | No stage-agnostic input persistence | Daily | S | New tool |
-| 04 | Client questionnaire response not ingested | Per-bid | M | New tool |
-| 05 | No second-document ingestion | Per-bid | M | Extend tool |
-| 06 | No proposal revision workflow | Per-bid | L | Logic |
-| 07 | No deal status tracking | Occasional | S | Logic |
-| 08 | `save_deal_insights` too rigid | Occasional | S | Docstring |
-| 09 | No activity log | Occasional | S | Helper |
+| # | Gap | Impact | Effort | Fix Type | Status |
+|---|-----|--------|--------|----------|--------|
+| 01 | RFI chat input not routed to XLSX | Daily | S | Instruction | ✅ Done |
+| 02 | Single-row patch undocumented | Daily | S | Docstring | ✅ Done |
+| 03 | No stage-agnostic input persistence | Daily | S | New tool | ✅ Done |
+| 04 | Client questionnaire response not ingested | Per-bid | M | New tool | ✅ Done |
+| 05 | No second-document ingestion | Per-bid | M | Extend tool | ✅ Done |
+| 06 | No proposal revision workflow | Per-bid | L | Logic | ✅ Done |
+| 07 | No deal status tracking | Occasional | S | Logic | ✅ Done |
+| 08 | `save_deal_insights` too rigid | Occasional | S | Docstring | ✅ Done |
+| 09 | No activity log | Occasional | S | Helper | ✅ Done |
 
 ---
 
-_Next: implement GAP-01, GAP-02, GAP-03 together — they share a common theme
-(routing chat inputs correctly) and can ship as one small commit._
+_All 9 gaps shipped in commit 48b3131 on 2026-09-01._
