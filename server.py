@@ -2488,6 +2488,28 @@ def fill_rfi_xlsx(
       4. Never modifies the original file
 
     ══════════════════════════════════════════════════════════════
+    BATCH SIZE — HARD LIMIT
+    ══════════════════════════════════════════════════════════════
+    Call this tool with AT MOST 5 question rows per invocation.
+    If a sheet has more than 5 answerable rows, split into multiple
+    sequential calls — call → inspect_rfi_xlsx → next call.
+    Never exceed 5 rows in one answers_json array. Quality over speed.
+    ══════════════════════════════════════════════════════════════
+
+    ══════════════════════════════════════════════════════════════
+    PRE-SYNTHESIS — MANDATORY BEFORE BUILDING answers_json
+    ══════════════════════════════════════════════════════════════
+    For each question row in the current batch, BEFORE writing any JSON:
+      1. State the question topic in one line.
+      2. List every KB section, feature name, proof point, or data point
+         that is relevant to it (e.g. "Tara — conversational AI interviewer;
+         Capgemini case study — 12k candidates; SLA 99.9%").
+      3. Draft the answer opener (Yes / Partial / No + one sentence).
+    Only after completing this scratchpad for ALL rows in the batch
+    encode the answers_json array and call the tool.
+    ══════════════════════════════════════════════════════════════
+
+    ══════════════════════════════════════════════════════════════
     ANSWERING MODE — KB SOURCED, FULLY SYNTHESISED
     ══════════════════════════════════════════════════════════════
     Every answer must be faithfully sourced from the project KB files.
