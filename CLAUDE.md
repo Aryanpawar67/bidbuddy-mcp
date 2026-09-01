@@ -235,17 +235,18 @@ answering instruction in `fill_rfi_xlsx`'s docstring applies to all types.
 ## Environment & Dependencies
 
 ```
-Python 3.10+
+uv (auto-manages Python and packages)
 fastmcp >= 2.0.0     ← MCP server framework
 pypdf >= 4.0.0       ← PDF text extraction
 openpyxl >= 3.1.0    ← Excel read/write
-python-docx          ← DOCX generation (via docx_engine.py)
 ```
+
+Dependencies declared in `pyproject.toml`; `uv sync` installs them into `.venv`.
 
 Setup: `bash ~/Desktop/bidbuddy-mcp/setup.sh`
 
 Claude Desktop config: `~/Library/Application Support/Claude/claude_desktop_config.json`
-MCP entry: `bidbuddy` → `python server.py`
+MCP entry: `bidbuddy` → `uv --directory <path> run server.py`
 
 ---
 
