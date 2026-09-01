@@ -124,6 +124,7 @@ SUBFOLDERS = [
     "RFI/Supplier Questionnaire",
     "RFI/Auto Answer",
     "RFP",
+    "Deal Notes",
 ]
 
 STAGE_FILES = {
@@ -135,10 +136,15 @@ CONTEXT_FILES = [
     ("Deal Qualification/rfp_text.txt",                    "## RFP Content"),
     ("Deal Qualification/qualification_summary.md",        "## Deal Qualification Summary"),
     ("Deal Qualification/deal_insights.md",                "## Deal Strengths & Insights"),
+    ("Deal Notes/qual_notes.md",                           "## Qualification Stage Notes"),
     ("RFI/Supplier Questionnaire/questionnaire_summary.md","## Supplier Questionnaire (summary)"),
+    ("RFI/Supplier Questionnaire/client_responses.md",     "## Client Questionnaire Responses"),
     ("RFI/Auto Answer/answers.md",                         "## RFI Auto-Answer Summary"),
+    ("Deal Notes/rfi_notes.md",                            "## RFI Stage Notes"),
     ("RFP/explicit_asks.md",                               "## Customer Explicit Asks"),
+    ("Deal Notes/rfp_notes.md",                            "## RFP Stage Notes"),
     ("RFP/proposal_draft.md",                              "## Proposal Draft"),
+    ("Deal Notes/general_notes.md",                        "## General Deal Notes"),
 ]
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -174,6 +180,18 @@ def _save_meta(deal_id: str, meta: dict) -> None:
 def _create_subfolders(base: Path) -> None:
     for sub in SUBFOLDERS:
         (base / sub).mkdir(parents=True, exist_ok=True)
+
+def _append_activity_log(deal_id: str, entry: str) -> None:
+    """Append a timestamped one-line entry to Deal Notes/activity_log.md. Non-fatal."""
+    try:
+        meta = _load_meta(deal_id)
+        log_dir = Path(meta["base_path"]) / "Deal Notes"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+        with open(log_dir / "activity_log.md", "a") as f:
+            f.write(f"{timestamp} · {entry}\n")
+    except Exception:
+        pass
 
 # ── Specialized sheet-type detection ──────────────────────────────────────────
 _SHEET_TYPE_SIGNALS: dict = {
@@ -373,6 +391,30 @@ def setup_deal(
 
 
 @mcp.tool()
+def update_deal_status(deal_id: str, status: str) -> str:
+    """
+    Set the outcome/lifecycle status of a deal.
+    Saved to meta.json and shown in list_deals output.
+    Call this whenever the deal moves to a new lifecycle milestone.
+
+    Args:
+        deal_id: Client name (e.g. "Accenture")
+        status:  One of: active | submitted | won | lost | abandoned
+    """
+    VALID = {"active", "submitted", "won", "lost", "abandoned"}
+    status = status.lower().strip()
+    if status not in VALID:
+        return f"Error: status must be one of {sorted(VALID)}"
+
+    meta = _load_meta(deal_id)
+    meta["deal_status"] = status
+    _save_meta(deal_id, meta)
+
+    _append_activity_log(deal_id, f"update_deal_status · {status.upper()}")
+    return f"Deal status updated: {deal_id} → {status.upper()}"
+
+
+@mcp.tool()
 def list_deals() -> str:
     """List all active deals with their stage, score, and files."""
     deals = []
@@ -387,11 +429,13 @@ def list_deals() -> str:
         completed = ", ".join(m.get("stages_completed", [])) or "not started"
         score = m.get("qualification_score", "")
         score_str = f"  Score: {score}/100" if score else ""
+        deal_status = m.get("deal_status", "active").upper()
+        status_icon = {"ACTIVE": "🟢", "SUBMITTED": "🔵", "WON": "✅", "LOST": "❌", "ABANDONED": "⛔"}.get(deal_status, "")
 
         # Count files across subfolders
         all_files = [f for f in d.rglob("*") if f.is_file() and f.name != "meta.json"]
         deals.append(
-            f"━━ {m['deal_id']}  [{m['product']}]  Deadline: {m['deadline']}\n"
+            f"━━ {m['deal_id']}  [{m['product']}]  Deadline: {m['deadline']}  {status_icon} {deal_status}\n"
             f"   Client: {m['client_name']}{score_str}\n"
             f"   Stage: {m['stage']}  |  Completed: {completed}\n"
             f"   Files: {len(all_files)} across deal subfolders"
@@ -751,6 +795,7 @@ def save_rfp_analysis_docx(deal_id: str, sections_json: str) -> str:
         completed.append("rfp_analysis")
     _save_meta(deal_id, meta)
 
+    _append_activity_log(deal_id, f"save_rfp_analysis_docx · {filename}")
     return (
         f"RFP Analysis DOCX saved: {filename}\n"
         f"Location: {out}\n"
@@ -1160,6 +1205,7 @@ def save_qual_result_docx(deal_id: str, assessment_json: str) -> str:
 
     gap_criteria = [cname for cid, cname, _ in CRITERIA if scores.get(cid, 0) in (1, 2)]
     strong_criteria = [cname for cid, cname, _ in CRITERIA if scores.get(cid, 0) >= 4]
+    _append_activity_log(deal_id, f"save_qual_result_docx · {filename} · score={total_score} · {dec_label}")
     return (
         f"Qualification Result DOCX saved: {filename}\n"
         f"Location: {out}\n"
@@ -1738,6 +1784,7 @@ def save_supplier_questionnaire(deal_id: str, questions_json: str) -> str:
         completed.append("supplier_questionnaire")
     _save_meta(deal_id, meta)
 
+    _append_activity_log(deal_id, f"save_supplier_questionnaire · {len(questions)} questions · {filename}")
     return (
         f"RFI Clarification Questions saved: {filename}\n"
         f"Location: {out}\n"
@@ -1747,17 +1794,118 @@ def save_supplier_questionnaire(deal_id: str, questions_json: str) -> str:
     )
 
 
+# ── Client questionnaire response ingestion ────────────────────────────────────
+
+@mcp.tool()
+def ingest_supplier_response(deal_id: str, xlsx_path: str) -> str:
+    """
+    Ingest the client's filled-back supplier questionnaire XLSX.
+
+    When the client returns the clarification questionnaire generated by
+    save_supplier_questionnaire, call this tool to read their responses.
+    Pairs each client response with its question and saves a structured summary
+    to RFI/Supplier Questionnaire/client_responses.md, which get_deal_context
+    loads automatically so future sessions can reference the client's stated
+    priorities when answering the RFI and building the proposal.
+
+    Args:
+        deal_id:   Client name (e.g. "Accenture")
+        xlsx_path: Full path to the returned (client-filled) XLSX on disk
+    """
+    try:
+        import openpyxl
+    except ImportError:
+        return "Error: openpyxl not installed."
+
+    src = Path(xlsx_path)
+    if not src.exists():
+        return f"Error: file not found at {xlsx_path}"
+
+    meta = _load_meta(deal_id)
+    base = Path(meta["base_path"])
+    sq_dir = base / "RFI" / "Supplier Questionnaire"
+    sq_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        wb = openpyxl.load_workbook(src, data_only=True)
+    except Exception as e:
+        return f"Error opening XLSX: {e}"
+
+    ws = wb.active
+    rows_collected = []
+    for row in ws.iter_rows(min_row=2, values_only=True):
+        if not row or len(row) < 3:
+            continue
+        num      = row[0]
+        category = str(row[1]).strip() if row[1] else ""
+        question = str(row[2]).strip() if row[2] else ""
+        response = str(row[3]).strip() if len(row) > 3 and row[3] else ""
+        if not question or question == "None":
+            continue
+        rows_collected.append({
+            "num": num, "category": category,
+            "question": question, "response": response,
+        })
+
+    if not rows_collected:
+        return "No Q&A rows found. Check that the file has data in columns A–D starting from row 2."
+
+    answered   = [r for r in rows_collected if r["response"] and r["response"] != "None"]
+    unanswered = [r for r in rows_collected if not r["response"] or r["response"] == "None"]
+
+    md_lines = [
+        f"# Client Questionnaire Responses — {meta['client_name']}",
+        f"_Source: {src.name}  ·  Ingested {datetime.now().strftime('%B %d, %Y')}_",
+        f"_Questions: {len(rows_collected)}  |  Answered: {len(answered)}  |  Blank: {len(unanswered)}_",
+        "",
+    ]
+
+    current_cat = ""
+    for r in rows_collected:
+        if r["category"] != current_cat:
+            current_cat = r["category"]
+            md_lines.append(f"\n## {current_cat}\n")
+        q_label = f"**Q{r['num']}:** {r['question']}" if r["num"] else f"**Q:** {r['question']}"
+        resp_text = (r["response"] if r["response"] and r["response"] != "None"
+                     else "_[No response provided]_")
+        md_lines.append(q_label)
+        md_lines.append(f"> {resp_text}")
+        md_lines.append("")
+
+    out = sq_dir / "client_responses.md"
+    out.write_text("\n".join(md_lines))
+
+    _append_activity_log(deal_id,
+        f"ingest_supplier_response · {len(answered)}/{len(rows_collected)} answered · source: {src.name}")
+    return (
+        f"Client responses saved: {out}\n"
+        f"Questions: {len(rows_collected)}  |  Answered: {len(answered)}  |  Blank: {len(unanswered)}\n\n"
+        f"Will load automatically via get_deal_context.\n"
+        f"Claude can now reference the client's stated priorities when answering the RFI "
+        f"and building the proposal."
+    )
+
+
 # ── RFP ingestion ──────────────────────────────────────────────────────────────
 
 @mcp.tool()
-def ingest_rfp(deal_id: str, pdf_path: str) -> str:
+def ingest_rfp(deal_id: str, pdf_path: str, label: str = "") -> str:
     """
     Copy the RFP PDF into Deal Qualification/ and extract its text for Claude to read.
     Returns the full extracted text so Claude can immediately start working with it.
 
+    When called with a label (e.g. "Addendum 1 — Scope Update"), the extracted text
+    is APPENDED to the existing rfp_text.txt rather than overwriting it. Use this to
+    ingest addenda, amendments, technical annexes, or any supplementary document that
+    arrived after the original RFP. get_deal_context and all downstream tools pick it
+    up automatically — no extra steps needed.
+
     Args:
         deal_id:  Client name (e.g. "Accenture")
-        pdf_path: Full path to the RFP PDF on disk
+        pdf_path: Full path to the RFP or addendum PDF on disk
+        label:    Optional label for the document (e.g. "Addendum 1 — Scope Update").
+                  When set, text is appended to rfp_text.txt with a dated section header.
+                  Leave empty for the original RFP (overwrites any prior ingestion).
     """
     src = Path(pdf_path)
     if not src.exists():
@@ -1768,7 +1916,9 @@ def ingest_rfp(deal_id: str, pdf_path: str) -> str:
     dq_folder = base / "Deal Qualification"
     dq_folder.mkdir(parents=True, exist_ok=True)
 
-    dest = dq_folder / "rfp.pdf"
+    is_addendum = bool(label.strip())
+    dest_name = f"addendum_{re.sub(r'[^a-z0-9]+', '_', label.lower()).strip('_')}.pdf" if is_addendum else "rfp.pdf"
+    dest = dq_folder / dest_name
     shutil.copy2(src, dest)
 
     try:
@@ -1788,22 +1938,41 @@ def ingest_rfp(deal_id: str, pdf_path: str) -> str:
         return f"Error extracting PDF: {e}"
 
     text_file = dq_folder / "rfp_text.txt"
-    text_file.write_text(full_text)
+    date_str = datetime.now().strftime("%Y-%m-%d")
+    if is_addendum:
+        existing_text = text_file.read_text() if text_file.exists() else ""
+        section_header = f"\n\n## {label} — {date_str}\n\n"
+        text_file.write_text(existing_text + section_header + full_text)
+    else:
+        orig_header = f"## Original RFP — {date_str}\n\n"
+        text_file.write_text(orig_header + full_text)
 
-    # Auto-classify product type from RFP text
+    # Auto-classify product type from RFP text (only on original ingestion)
     classification = _classify_product(full_text)
     product_type = classification["product_type"]
 
     # Update meta
-    meta["rfp_filename"] = src.name
-    meta["rfp_pages"] = len(reader.pages)
-    meta["product_type"] = product_type
-    meta["product_ta_signals"] = classification["ta_hits"]
-    meta["product_tm_signals"] = classification["tm_hits"]
+    if is_addendum:
+        meta.setdefault("addenda", []).append({"label": label, "filename": src.name, "date": date_str})
+    else:
+        meta["rfp_filename"] = src.name
+        meta["rfp_pages"] = len(reader.pages)
+        meta["product_type"] = product_type
+        meta["product_ta_signals"] = classification["ta_hits"]
+        meta["product_tm_signals"] = classification["tm_hits"]
     _save_meta(deal_id, meta)
 
     preview = full_text[:40_000]
     truncated = len(full_text) > 40_000
+
+    if is_addendum:
+        return (
+            f"Addendum ingested: {src.name}  ({len(reader.pages)} pages, {len(full_text):,} chars)\n"
+            f"Label: {label}\n"
+            f"Appended to: {text_file}\n"
+            + (f"[First 40k chars shown — full text appended to rfp_text.txt]\n" if truncated else "")
+            + f"\n{preview}"
+        )
 
     # Build classification summary line
     if product_type == "unknown":
@@ -2290,6 +2459,7 @@ def parse_rfi_xlsx(deal_id: str, xlsx_path: str) -> str:
         "  each question and call fill_rfi_xlsx.",
         "═" * 70,
     ]
+    _append_activity_log(deal_id, f"parse_rfi_xlsx · {total_questions} questions · {len(structure)} sheets · {src.name}")
     return "\n".join(lines)
 
 
@@ -2348,6 +2518,24 @@ def fill_rfi_xlsx(
                  topics (e.g. commercial pricing, TBD placeholders,
                  scope-specific items). Never use [CONFIRM] for product
                  capabilities the KB covers, even partially.
+    ══════════════════════════════════════════════════════════════
+    CHAT INPUT ROUTING — CRITICAL
+    ══════════════════════════════════════════════════════════════
+    If the user provides an answer for a specific row in chat — whether
+    resolving a [CONFIRM], correcting a previously filled answer, providing
+    a clarification received from an SME, or saying "update row X to say Y":
+      1. Call fill_rfi_xlsx IMMEDIATELY with only those rows in answers_json
+      2. Then call inspect_rfi_xlsx to confirm the write landed correctly
+      3. Then summarise the change to the user
+    Do NOT respond conversationally and defer — update the file FIRST.
+    ══════════════════════════════════════════════════════════════
+    SINGLE-ROW PATCH (update one row without disturbing others):
+      answers_json = [{"sheet": "Parameters", "row": 19,
+                       "answer": "iMocha supports NPS via star-rating feedback...",
+                       "confidence": "high"}]
+    Pass a single-element array — only that row is written. All other cells
+    remain exactly as they are. This is the correct method for resolving a
+    single [CONFIRM] or correcting one answer without a full refill.
     ══════════════════════════════════════════════════════════════
 
     Args:
@@ -2688,13 +2876,15 @@ def fill_rfi_xlsx(
         audit_out.write_text("\n".join(md_lines))
         result += f"\nAudit trail         : {audit_out}"
 
+    per_sheet_log = ", ".join(f"{s}: {n}" for s, n in sheet_counts.items()) or "none"
+    _append_activity_log(deal_id, f"fill_rfi_xlsx · {filled} rows written · {per_sheet_log}")
     return result
 
 
 # ── Proposal generation ────────────────────────────────────────────────────────
 
 @mcp.tool()
-def generate_proposal_docx(deal_id: str, intake_json: str) -> str:
+def generate_proposal_docx(deal_id: str, intake_json: str, revision_notes: str = "") -> str:
     """
     Generate a branded iMocha proposal DOCX using the TA or TM Word template.
     All AI-authored sections are yellow-highlighted for analyst review.
@@ -2709,8 +2899,16 @@ def generate_proposal_docx(deal_id: str, intake_json: str) -> str:
     Strips Word Online lock parts (intelligence2.xml, SharePoint parts) so the file is editable.
     Saves to RFP/ subfolder.
 
+    Output files are auto-versioned: first run → _DRAFT.docx, subsequent runs →
+    _v2.docx, _v3.docx, etc. Previous versions are kept for comparison.
+    Pass revision_notes to capture what changed between versions — persisted to
+    RFP/explicit_asks.md so the next session knows what was incorporated.
+
     Args:
-        deal_id:     Client name (e.g. "Accenture")
+        deal_id:        Client name (e.g. "Accenture")
+        revision_notes: Optional — what changed in this revision (e.g. "Incorporated
+                        reviewer feedback on pricing section and data residency").
+                        Appended to explicit_asks.md for session continuity.
         intake_json: JSON with all proposal content authored by Claude. Schema:
           {
             "product": "TA" or "TM" (optional — auto-detected from RFP if omitted),
@@ -2771,9 +2969,32 @@ def generate_proposal_docx(deal_id: str, intake_json: str) -> str:
     rfp_folder.mkdir(parents=True, exist_ok=True)
 
     safe = re.sub(r"[^a-z0-9]+", "_", intake.get("customer_display_name", deal_id).lower()).strip("_")
-    filename = f"iMocha_{safe}_{product}_Proposal_DRAFT.docx"
+    base_stem = f"iMocha_{safe}_{product}_Proposal"
+    draft_path = rfp_folder / f"{base_stem}_DRAFT.docx"
+    if not draft_path.exists():
+        filename = f"{base_stem}_DRAFT.docx"
+    else:
+        # Auto-version: find highest existing _vN and increment
+        existing_versions = [
+            int(m.group(1))
+            for f in rfp_folder.glob(f"{base_stem}_v*.docx")
+            for m in [re.search(r"_v(\d+)\.docx$", f.name)]
+            if m
+        ]
+        next_v = max(existing_versions, default=1) + 1
+        filename = f"{base_stem}_v{next_v}.docx"
     out = rfp_folder / filename
     out.write_bytes(docx_bytes)
+
+    # Persist revision notes so future sessions know what changed
+    if revision_notes.strip():
+        rev_entry = (
+            f"## Revision Notes — {filename} — {datetime.now().strftime('%B %d, %Y')}\n"
+            + revision_notes.strip()
+        )
+        existing_asks = (rfp_folder / "explicit_asks.md").read_text() if (rfp_folder / "explicit_asks.md").exists() else ""
+        sep = f"\n\n---\n_Added {datetime.now().strftime('%B %d, %Y %H:%M')}_\n\n" if existing_asks else ""
+        (rfp_folder / "explicit_asks.md").write_text(existing_asks + sep + rev_entry)
 
     confirm_count = sum(
         1 for v in [
@@ -2793,6 +3014,7 @@ def generate_proposal_docx(deal_id: str, intake_json: str) -> str:
     meta["stage"] = "proposal_review"
     _save_meta(deal_id, meta)
 
+    _append_activity_log(deal_id, f"generate_proposal_docx · {filename} · {confirm_count} [CONFIRM] markers")
     return (
         f"Proposal generated: {filename}\n"
         f"Saved to: {out}\n"
@@ -2815,22 +3037,23 @@ def save_deal_insights(deal_id: str, insights_md: str) -> str:
     Call this immediately after you have delivered the insights analysis to the user
     in chat — pass exactly the markdown you showed them.
 
-    Format expected (use this structure so future context loads cleanly):
+    Recommended format (use this structure when the input allows, for clean future loading):
 
     ## Strengths
     - Strength 1
-    - Strength 2
 
     ## Weaknesses / Risks
     - Risk 1
-    - Risk 2
 
     ## Win Strategy
     One or two sentence recommendation.
 
     ## Recommended Next Steps
     1. Step one
-    2. Step two
+
+    Free-form prose, bullet lists, and verbal briefing notes (e.g. discovery call highlights)
+    are also accepted — do not force the structure above if the analyst's input doesn't fit it.
+    Route truly free-form qual-stage inputs here or to save_deal_note with stage="qual".
 
     Args:
         deal_id:     Client name (e.g. "Accenture")
@@ -2850,7 +3073,61 @@ def save_deal_insights(deal_id: str, insights_md: str) -> str:
         completed.append("deal_insights")
     _save_meta(deal_id, meta)
 
+    _append_activity_log(deal_id, f"save_deal_insights · {len(insights_md)} chars")
     return f"Insights saved: {out}\n({len(insights_md):,} chars — will load automatically via get_deal_context)"
+
+
+# ── Deal notes (stage-agnostic) ───────────────────────────────────────────────
+
+@mcp.tool()
+def save_deal_note(deal_id: str, stage: str, note_text: str) -> str:
+    """
+    Persist free-form notes for a deal at any stage. Stage-agnostic catch-all for
+    inputs that don't fit a dedicated tool — SME clarifications, discovery call notes,
+    champion briefings, client emails, resolved [CONFIRM] context, or any ad-hoc input.
+
+    Appends to Deal Notes/{stage}_notes.md (auto-created) and is loaded automatically
+    by get_deal_context in future sessions.
+
+    Use this whenever the user provides any free-form input not covered by a dedicated tool:
+      - qual stage: discovery call notes, champion briefings, competitor intel
+      - rfi stage:  SME clarifications, resolved [CONFIRM] items, client email context
+      - rfp stage:  late pricing inputs, reference customer requests, verbal additions
+      - general:    cross-stage notes, decisions, open questions
+
+    Use save_explicit_asks for structured RFP asks with MUST HAVE / NICE TO HAVE labels.
+    save_deal_note is the catch-all for everything else.
+
+    Args:
+        deal_id:   Client name (e.g. "Accenture")
+        stage:     One of: qual | rfi | rfp | general
+        note_text: Free-form text to append (markdown, prose, or bullet list)
+    """
+    VALID_STAGES = {"qual", "rfi", "rfp", "general"}
+    stage = stage.lower().strip()
+    if stage not in VALID_STAGES:
+        return f"Error: stage must be one of {sorted(VALID_STAGES)}"
+
+    meta = _load_meta(deal_id)
+    base = Path(meta["base_path"])
+    notes_dir = base / "Deal Notes"
+    notes_dir.mkdir(parents=True, exist_ok=True)
+
+    out = notes_dir / f"{stage}_notes.md"
+    existing = out.read_text() if out.exists() else ""
+    timestamp = datetime.now().strftime("%B %d, %Y %H:%M")
+    if existing:
+        separator = f"\n\n---\n_Added {timestamp}_\n\n"
+    else:
+        separator = f"# {stage.title()} Stage Notes — {meta['client_name']}\n_Created {timestamp}_\n\n"
+    out.write_text(existing + separator + note_text.strip())
+
+    _append_activity_log(deal_id, f"save_deal_note · stage={stage} · {len(note_text)} chars")
+    return (
+        f"Note saved: {out}\n"
+        f"Stage: {stage}  |  Added {len(note_text):,} chars  |  File total: {len(out.read_text()):,} chars\n"
+        f"Will load automatically via get_deal_context in future sessions."
+    )
 
 
 # ── RFP explicit asks ───────────────────────────────────────────────────────────
@@ -2900,6 +3177,7 @@ def save_explicit_asks(deal_id: str, asks_text: str) -> str:
     _save_meta(deal_id, meta)
 
     char_total = len(out.read_text())
+    _append_activity_log(deal_id, f"save_explicit_asks · {len(asks_text)} chars added")
     return (
         f"Explicit asks saved: {out}\n"
         f"Added {len(asks_text):,} chars  |  File total: {char_total:,} chars\n"
@@ -3005,6 +3283,13 @@ def inspect_rfi_xlsx(deal_id: str, columns: str = "", max_rows: int = 10) -> str
         lines.append("")
 
     lines.append(f"File size: {filled.stat().st_size:,} bytes")
+    total_cells = sum(
+        len([r for r in wb[sn].iter_rows() for c in r
+             if not isinstance(c, type(None)) and c.column in [_col_num(l) for l in target_letters]
+             and c.value and str(c.value).strip()])
+        for sn in wb.sheetnames
+    )
+    _append_activity_log(deal_id, f"inspect_rfi_xlsx · cols={','.join(target_letters)} · {filled.stat().st_size:,} bytes")
     return "\n".join(lines)
 
 
