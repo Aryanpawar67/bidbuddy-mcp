@@ -1,3 +1,7 @@
+# ── Internal dev notes — not for distribution ─────────────────────────────────
+CLAUDE.md
+GAPS.md
+
 # ── Secrets — never commit these ──────────────────────────────────────────────
 .env
 .env.*

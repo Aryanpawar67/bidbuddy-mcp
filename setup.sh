@@ -28,10 +28,46 @@ echo ""
 
 
 # ══════════════════════════════════════════════════════════════════
-#  STEP 1 of 4 — Check Claude Desktop is installed
+#  STEP 0 of 5 — Check Git is installed & pull latest code
 # ══════════════════════════════════════════════════════════════════
 
-echo "  [1/4]  Checking for Claude Desktop..."
+echo "  [0/5]  Checking for Git..."
+
+if ! command -v git &>/dev/null; then
+    echo ""
+    echo "  ✗  Git is not installed."
+    echo ""
+    echo "  ┌─ How to install Git ──────────────────────────────────┐"
+    echo "  │  1. In Terminal, run:  git --version                  │"
+    echo "  │  2. A popup will appear — click Install               │"
+    echo "  │  3. Wait for it to finish (~2 min)                    │"
+    echo "  │  4. Run this setup again                              │"
+    echo "  └───────────────────────────────────────────────────────┘"
+    echo ""
+    echo "  First time on this Mac? Get the repo with:"
+    echo "    cd ~/Desktop"
+    echo "    git clone https://github.com/Aryanpawar67/bidbuddy-mcp.git"
+    echo ""
+    exit 1
+fi
+
+echo "         ✓  Git found"
+echo ""
+echo "         Pulling latest BidBuddy updates..."
+
+if git -C "$SCRIPT_DIR" pull --ff-only --quiet 2>/dev/null; then
+    echo "         ✓  Up to date"
+else
+    echo "         ↷  Could not auto-update (skipping — continuing with current version)"
+fi
+
+
+# ══════════════════════════════════════════════════════════════════
+#  STEP 1 of 5 — Check Claude Desktop is installed
+# ══════════════════════════════════════════════════════════════════
+
+echo ""
+echo "  [1/5]  Checking for Claude Desktop..."
 
 if [ ! -d "$HOME/Applications/Claude.app" ] && [ ! -d "/Applications/Claude.app" ]; then
     echo ""
@@ -52,11 +88,11 @@ echo "         ✓  Claude Desktop found"
 
 
 # ══════════════════════════════════════════════════════════════════
-#  STEP 2 of 4 — Install uv (manages Python for us)
+#  STEP 2 of 5 — Install uv (manages Python for us)
 # ══════════════════════════════════════════════════════════════════
 
 echo ""
-echo "  [2/4]  Installing BidBuddy's tools..."
+echo "  [2/5]  Installing BidBuddy's tools..."
 echo "         (Downloads a small helper that handles everything else.)"
 echo "         (Skipped automatically if already installed.)"
 echo ""
@@ -95,11 +131,11 @@ fi
 
 
 # ══════════════════════════════════════════════════════════════════
-#  STEP 3 of 4 — Pre-download BidBuddy's add-ons
+#  STEP 3 of 5 — Pre-download BidBuddy's add-ons
 # ══════════════════════════════════════════════════════════════════
 
 echo ""
-echo "  [3/4]  Downloading BidBuddy's add-ons..."
+echo "  [3/5]  Downloading BidBuddy's add-ons..."
 echo "         (Like app updates — happens once, then BidBuddy is fast.)"
 echo ""
 
@@ -118,11 +154,11 @@ fi
 
 
 # ══════════════════════════════════════════════════════════════════
-#  STEP 4 of 4 — Connect BidBuddy to Claude Desktop
+#  STEP 4 of 5 — Connect BidBuddy to Claude Desktop
 # ══════════════════════════════════════════════════════════════════
 
 echo ""
-echo "  [4/4]  Connecting BidBuddy to Claude Desktop..."
+echo "  [4/5]  Connecting BidBuddy to Claude Desktop..."
 
 # Quit Claude Desktop first — changes are ignored while it is open
 if pgrep -x "Claude" &>/dev/null; then
@@ -169,7 +205,7 @@ open -a "Claude" 2>/dev/null || true
 
 
 # ══════════════════════════════════════════════════════════════════
-#  DONE — Two small steps left inside Claude Desktop
+#  STEP 5 of 5 — Done! Two small steps left inside Claude Desktop
 # ══════════════════════════════════════════════════════════════════
 
 echo ""
@@ -199,4 +235,10 @@ echo "  └───────────────────────
 echo ""
 echo "  Once those are in, open a chat in the BidBuddy project"
 echo "  and you're ready to go."
+echo ""
+echo "  ┌─ Staying up to date ──────────────────────────────────┐"
+echo "  │  When BidBuddy is updated, run in Terminal:           │"
+echo "  │    cd ~/Desktop/bidbuddy-mcp && git pull              │"
+echo "  │  Then run setup.sh again to apply the changes.        │"
+echo "  └───────────────────────────────────────────────────────┘"
 echo ""
